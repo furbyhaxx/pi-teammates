@@ -1,4 +1,7 @@
 import type { TeammatePromptMode } from "./teammates.ts";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 
 export const TEAMMATES_CURRENT_ENV = "PI_TEAMMATES_CURRENT";
 export const TEAMMATES_LINEAGE_ENV = "PI_TEAMMATES_LINEAGE";
@@ -7,6 +10,7 @@ export interface BuildDelegateProcessPlanArgs {
 	defaultCwd: string;
 	task: string;
 	cwd?: string;
+	sessionFilePath?: string;
 	promptFilePath?: string;
 	promptMode: TeammatePromptMode;
 	model?: string;
@@ -23,8 +27,15 @@ export interface DelegateProcessPlan {
 	env: NodeJS.ProcessEnv;
 }
 
+export interface TemporarySessionCopy {
+	dir: string;
+	filePath: string;
+}
+
 export function buildDelegateProcessPlan(args: BuildDelegateProcessPlanArgs): DelegateProcessPlan {
-	const invocationArgs: string[] = ["--mode", "json", "-p", "--no-session"];
+	const invocationArgs: string[] = ["--mode", "json", "-p"];
+	if (args.sessionFilePath) invocationArgs.push("--session", args.sessionFilePath);
+	else invocationArgs.push("--no-session");
 	if (args.model) invocationArgs.push("--model", args.model);
 	if (args.disableAllTools) {
 		invocationArgs.push("--no-tools");
@@ -37,7 +48,7 @@ export function buildDelegateProcessPlan(args: BuildDelegateProcessPlanArgs): De
 			args.promptFilePath,
 		);
 	}
-	invocationArgs.push(`Task: ${args.task}`);
+	invocationArgs.push(args.task);
 
 	const nextLineage = [...args.lineage, args.teammateName];
 	return {
@@ -49,6 +60,13 @@ export function buildDelegateProcessPlan(args: BuildDelegateProcessPlanArgs): De
 			[TEAMMATES_LINEAGE_ENV]: JSON.stringify(nextLineage),
 		},
 	};
+}
+
+export async function copySessionFileToTemp(sourceSessionFile: string): Promise<TemporarySessionCopy> {
+	const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-teammates-session-"));
+	const filePath = path.join(dir, path.basename(sourceSessionFile));
+	await fs.promises.copyFile(sourceSessionFile, filePath);
+	return { dir, filePath };
 }
 
 export function parseTeammatesLineage(value: string | undefined): string[] {

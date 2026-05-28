@@ -34,7 +34,7 @@ assert.deepEqual(replacePlan.args, [
 	"read,shell_exec",
 	"--system-prompt",
 	"/tmp/prompt-replace.md",
-	"Task: Inspect src/index.ts",
+	"Inspect src/index.ts",
 ]);
 assert.equal(replacePlan.env.PI_TEAMMATES_CURRENT, "scout");
 assert.equal(replacePlan.env.PI_TEAMMATES_LINEAGE, '["planner","scout"]');
@@ -61,9 +61,36 @@ assert.deepEqual(appendPlan.args, [
 	"--no-tools",
 	"--append-system-prompt",
 	"/tmp/prompt-append.md",
-	"Task: Review changes",
+	"Review changes",
 ]);
 assert.equal(appendPlan.env.PI_TEAMMATES_CURRENT, "reviewer");
 assert.equal(appendPlan.env.PI_TEAMMATES_LINEAGE, '["reviewer"]');
+
+const inheritPlan = buildDelegateProcessPlan({
+	defaultCwd: "/repo",
+	task: "Continue the current work",
+	cwd: undefined,
+	sessionFilePath: "/tmp/inherit-session.jsonl",
+	promptMode: "append",
+	model: "github-copilot/gpt-5.4-mini",
+	tools: ["read", "delegate"],
+	disableAllTools: false,
+	teammateName: "worker",
+	lineage: ["planner"],
+	env: {},
+});
+assert.deepEqual(inheritPlan.args, [
+	"--mode",
+	"json",
+	"-p",
+	"--session",
+	"/tmp/inherit-session.jsonl",
+	"--model",
+	"github-copilot/gpt-5.4-mini",
+	"--tools",
+	"read,delegate",
+	"Continue the current work",
+]);
+assert.equal(inheritPlan.env.PI_TEAMMATES_LINEAGE, '["planner","worker"]');
 
 console.log("delegate process tests passed");

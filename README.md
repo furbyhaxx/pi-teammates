@@ -2,7 +2,7 @@
 
 A [pi](https://github.com/earendil-works/pi) coding-agent extension for delegating bounded work to configured teammates running in isolated subprocesses.
 
-It reworks Pi's subagent example into a settings-driven package with scoped teammate discovery, tool aliasing, prompt modes, and recursion guards. Because just renaming `subagent` to `delegate` would have been insultingly lazy.
+It reworks Pi's subagent example into a settings-driven package with scoped teammate discovery, tool aliasing, prompt modes, context-transfer strategies, and recursion guards. Because just renaming `subagent` to `delegate` would have been insultingly lazy.
 
 ## Install
 
@@ -39,7 +39,9 @@ pi install npm:@furbyhaxx/pi-teammates
 - Discovers teammates from user and project scopes.
 - Loads project teammates by default and lets settings disable them globally or per project.
 - Supports teammate frontmatter `model: provider/model:thinking` values directly.
+- Supports teammate frontmatter `context: new | inherit | summary | handoff` values.
 - Supports teammate `prompt: append | replace` frontmatter.
+- Supports configurable context-generation model lists with current-session-model fallback.
 - Supports teammate `tools` maps with per-tool enable/disable rules and settings-defined aliases.
 - Denies delegation by default inside child teammates unless `tools.delegate: true` is set.
 - Blocks recursive delegation back into the current teammate lineage.
@@ -53,7 +55,7 @@ Configuration lives in Pi's normal scoped settings files under the `teammates` k
 - Global: `${PI_CODING_AGENT_DIR:-~/.pi/agent}/settings.json`
 - Project: `./.pi/settings.json`
 
-Project settings override global settings. The extension deep-merges only its own `teammates` block.
+Project settings override global settings. The extension deep-merges only its own `teammates` block. Snake-case aliases such as `summary_models` and `handoff_models` are also accepted.
 
 A fully commented example lives in [`examples/settings.jsonc`](examples/settings.jsonc).
 
@@ -67,7 +69,12 @@ A fully commented example lives in [`examples/settings.jsonc`](examples/settings
     "maxConcurrency": 4,
     "collapsedItemCount": 10,
     "perTaskOutputCap": 51200,
-    "toolAliases": {}
+    "toolAliases": {},
+    "context": {
+      "models": [],
+      "summaryModels": [],
+      "handoffModels": []
+    }
   }
 }
 ```
@@ -82,6 +89,9 @@ A fully commented example lives in [`examples/settings.jsonc`](examples/settings
 | `collapsedItemCount` | `10` | Number of recent display items shown in collapsed tool output. |
 | `perTaskOutputCap` | `51200` | Max model-visible bytes kept per parallel task summary. Full data still stays in tool details. |
 | `toolAliases` | `{}` | Map of teammate tool names to actual Pi tool names. |
+| `context.models` | `[]` | Preferred model list for generating `summary` or `handoff` context packets. Empty means use the current session model fallback immediately. |
+| `context.summaryModels` | `[]` | Optional override list used only for `context: summary`. Falls back to `context.models` when empty. |
+| `context.handoffModels` | `[]` | Optional override list used only for `context: handoff`. Falls back to `context.models` when empty. |
 
 ### Tool alias example
 
@@ -98,6 +108,24 @@ If your environment replaces `bash` with `shell_exec`, add an alias:
 ```
 
 Alias arrays are resolved in addition to the original key, then filtered against the current active tool set.
+
+### Context model example
+
+If you want dedicated models for context-packet generation, configure them explicitly:
+
+```jsonc
+{
+  "teammates": {
+    "context": {
+      "models": ["deepseek/deepseek-v4-flash:high"],
+      "summaryModels": ["deepseek/deepseek-v4-flash"],
+      "handoffModels": ["deepseek/deepseek-v4-pro"]
+    }
+  }
+}
+```
+
+If every configured candidate fails or has no working auth, pi falls back to the current session model as the last resort.
 
 ## Teammate discovery
 
@@ -124,6 +152,7 @@ Teammates are Markdown files with YAML frontmatter:
 name: scout
 description: Fast codebase reconnaissance and scoped file discovery.
 model: deepseek/deepseek-v4-flash:high
+context: new
 prompt: append
 tools:
   read: true
@@ -144,8 +173,20 @@ Inspect the repository quickly, stay scoped, and return only the findings that m
 | `name` | yes | Unique teammate identifier used by the `delegate` tool. |
 | `description` | yes | Short specialization summary used in the dynamic system prompt list. |
 | `model` | no | Passed directly to `pi --model`, so `provider/model:thinking` works. |
+| `context` | no | `new` (default), `inherit`, `summary`, or `handoff`. Controls the teammate's default context-transfer strategy. |
 | `prompt` | no | `append` (default) appends the Markdown body to Pi's system prompt; `replace` replaces the base prompt with the Markdown body. |
 | `tools` | no | Tool override map. This is also where `delegate` belongs. See semantics below. |
+
+### `context` semantics
+
+| Value | Meaning |
+| --- | --- |
+| `new` | Fresh context and only the delegated task. Default. |
+| `inherit` | Continue from the caller's exact session context by cloning the invoking session. |
+| `summary` | Fresh context plus a generated task-focused summary of the caller's session. |
+| `handoff` | Fresh context plus a generated execution-oriented handoff packet for the specific next task. |
+
+If `inherit` is requested from an ephemeral parent session with no backing session file, the call fails and should be retried with `new`, `summary`, or `handoff`.
 
 ### `tools` semantics
 
@@ -182,6 +223,7 @@ The tool supports three modes:
 ```json
 {
   "teammate": "scout",
+  "context": "summary",
   "task": "Find the auth entry points and summarize the call graph."
 }
 ```
@@ -193,7 +235,8 @@ The tool supports three modes:
   "tasks": [
     { "teammate": "scout", "task": "Find all auth providers." },
     { "teammate": "reviewer", "task": "List the highest-risk auth edge cases." }
-  ]
+  ],
+  "context": "handoff"
 }
 ```
 
@@ -204,11 +247,12 @@ The tool supports three modes:
   "chain": [
     { "teammate": "scout", "task": "Map the session flow." },
     { "teammate": "planner", "task": "Design the fix using this context:\n\n{previous}" }
-  ]
+  ],
+  "context": "new"
 }
 ```
 
-Optional `cwd` is supported in single, parallel task items, and chain step items.
+Optional `cwd` is supported in single, parallel task items, and chain step items. Optional top-level `context` overrides every teammate's frontmatter default for that delegate call.
 
 ## Delegation prompt behavior
 

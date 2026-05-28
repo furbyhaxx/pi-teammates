@@ -2,6 +2,7 @@
 name: planner
 description: Breaks findings into concrete implementation plans.
 model: anthropic/claude-sonnet-4-5
+context: new
 prompt: append
 tools:
   read: true

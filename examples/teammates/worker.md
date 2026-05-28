@@ -2,6 +2,7 @@
 name: worker
 description: General implementation teammate for focused coding tasks.
 model: anthropic/claude-sonnet-4-5
+context: new
 prompt: append
 tools:
   read: true

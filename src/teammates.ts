@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { parseTeammateContextMode, type TeammateContextMode } from "./context-transfer.ts";
 
 export type TeammateSource = "user" | "project";
 export type TeammatePromptMode = "append" | "replace";
@@ -10,6 +11,7 @@ export interface TeammateConfig {
 	description: string;
 	tools?: Record<string, boolean>;
 	model?: string;
+	contextMode: TeammateContextMode;
 	promptMode: TeammatePromptMode;
 	systemPrompt: string;
 	source: TeammateSource;
@@ -44,6 +46,7 @@ export function parseTeammateMarkdown(
 		description,
 		tools: parseToolToggles(frontmatter.tools),
 		model: typeof frontmatter.model === "string" ? frontmatter.model.trim() || undefined : undefined,
+		contextMode: parseTeammateContextMode(frontmatter.context),
 		promptMode: frontmatter.prompt === "replace" ? "replace" : "append",
 		systemPrompt: body,
 		source,

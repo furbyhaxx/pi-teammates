@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
+import type { TeammatesContextConfig } from "./context-transfer.ts";
 
 export interface TeammatesSettingsConfig {
 	loadProjectTeammates: boolean;
@@ -9,6 +10,7 @@ export interface TeammatesSettingsConfig {
 	collapsedItemCount: number;
 	perTaskOutputCap: number;
 	toolAliases: Record<string, string[]>;
+	context: TeammatesContextConfig;
 }
 
 export interface PiTeammatesConfig {
@@ -36,6 +38,11 @@ export const DEFAULT_TEAMMATES_CONFIG: PiTeammatesConfig = {
 		collapsedItemCount: 10,
 		perTaskOutputCap: 50 * 1024,
 		toolAliases: {},
+		context: {
+			models: [],
+			summaryModels: [],
+			handoffModels: [],
+		},
 	},
 };
 
@@ -46,7 +53,10 @@ const TEAMMATES_KEYS = [
 	"collapsedItemCount",
 	"perTaskOutputCap",
 	"toolAliases",
+	"context",
 ] as const;
+
+const TEAMMATES_CONTEXT_KEYS = ["models", "summaryModels", "handoffModels"] as const;
 
 export function loadTeammatesConfig(
 	cwd: string,
@@ -98,6 +108,16 @@ function sanitizeTeammatesSettings(value: TeammatesSettingsConfig): TeammatesSet
 			DEFAULT_TEAMMATES_CONFIG.teammates.perTaskOutputCap,
 		),
 		toolAliases: sanitizeToolAliases(value.toolAliases),
+		context: sanitizeContextConfig(value.context),
+	};
+}
+
+function sanitizeContextConfig(value: unknown): TeammatesContextConfig {
+	const context = pickKnown(value, TEAMMATES_CONTEXT_KEYS);
+	return {
+		models: sanitizeStringList(context.models),
+		summaryModels: sanitizeStringList(context.summaryModels),
+		handoffModels: sanitizeStringList(context.handoffModels),
 	};
 }
 
@@ -106,13 +126,18 @@ function sanitizeToolAliases(value: unknown): Record<string, string[]> {
 	const out: Record<string, string[]> = {};
 	for (const [key, aliasValue] of Object.entries(value)) {
 		if (!Array.isArray(aliasValue)) continue;
-		const aliases = aliasValue
-			.filter((item): item is string => typeof item === "string")
-			.map((item) => item.trim())
-			.filter((item, index, list) => item.length > 0 && list.indexOf(item) === index);
+		const aliases = sanitizeStringList(aliasValue);
 		if (aliases.length > 0) out[key] = aliases;
 	}
 	return out;
+}
+
+function sanitizeStringList(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value
+		.filter((item): item is string => typeof item === "string")
+		.map((item) => item.trim())
+		.filter((item, index, list) => item.length > 0 && list.indexOf(item) === index);
 }
 
 function positiveIntegerOrDefault(value: unknown, fallback: number): number {

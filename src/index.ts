@@ -3,15 +3,25 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import type { Message } from "@earendil-works/pi-ai";
+import type { Message, Model } from "@earendil-works/pi-ai";
+import { StringEnum } from "@earendil-works/pi-ai";
 import {
 	type ExtensionAPI,
 	getMarkdownTheme,
+	type ModelRegistry,
+	type SessionEntry,
 	withFileMutationQueue,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { loadTeammatesConfig, type TeammatesSettingsConfig } from "./config.ts";
+import {
+	buildDelegatedUserTask,
+	generateDelegationContext,
+	selectContextMode,
+	TEAMMATE_CONTEXT_MODES,
+	type TeammateContextMode,
+} from "./context-transfer.ts";
 import {
 	buildTeamPromptBlock,
 	canDelegateToTeammate,
@@ -19,6 +29,7 @@ import {
 } from "./delegation-policy.ts";
 import {
 	buildDelegateProcessPlan,
+	copySessionFileToTemp,
 	parseTeammatesLineage,
 	TEAMMATES_LINEAGE_ENV,
 } from "./delegate-process.ts";
@@ -275,6 +286,11 @@ async function runSingleTeammate(args: {
 	activeTools: string[];
 	teammates: TeammateConfig[];
 	lineage: string[];
+	parentBranch: SessionEntry[];
+	currentSessionFile: string | undefined;
+	currentModel: Model<any> | undefined;
+	modelRegistry: ModelRegistry;
+	contextOverride?: TeammateContextMode;
 	teammateName: string;
 	task: string;
 	cwd: string | undefined;
@@ -318,9 +334,12 @@ async function runSingleTeammate(args: {
 		delegateEnabled: teammate.tools?.delegate === true,
 	});
 	const disableAllTools = teammate.tools !== undefined && resolvedTools.length === 0;
+	const contextMode = selectContextMode(args.contextOverride, teammate.contextMode);
 
 	let tmpPromptDir: string | null = null;
 	let tmpPromptPath: string | null = null;
+	let tmpSessionDir: string | null = null;
+	let tmpSessionPath: string | null = null;
 
 	const currentResult: SingleResult = {
 		teammate: teammate.name,
@@ -350,19 +369,70 @@ async function runSingleTeammate(args: {
 			tmpPromptPath = tmp.filePath;
 		}
 
-		const plan = buildDelegateProcessPlan({
-			defaultCwd: args.defaultCwd,
-			task: args.task,
-			cwd: args.cwd,
-			promptFilePath: tmpPromptPath ?? undefined,
-			promptMode: teammate.promptMode,
-			model: teammate.model,
-			tools: resolvedTools,
-			disableAllTools,
-			teammateName: teammate.name,
-			lineage: args.lineage,
-			env: process.env,
-		});
+		let plan: ReturnType<typeof buildDelegateProcessPlan>;
+		try {
+			const generatedContext =
+				contextMode === "summary" || contextMode === "handoff"
+					? await generateDelegationContext({
+						mode: contextMode,
+						task: args.task,
+						branch: args.parentBranch,
+						contextConfig: args.runtimeConfig.context,
+						currentModel: args.currentModel,
+						modelRegistry: args.modelRegistry,
+						signal: args.signal,
+					})
+					: undefined;
+
+			if (contextMode === "inherit") {
+				if (!args.currentSessionFile) {
+					return {
+						teammate: teammate.name,
+						teammateSource: teammate.source,
+						task: args.task,
+						exitCode: 1,
+						messages: [],
+						stderr: "Inherited teammate context requires the invoking session to be persisted on disk. This session has no session file, so use context=new, summary, or handoff instead.",
+						usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+						step: args.step,
+					};
+				}
+
+				const tmp = await copySessionFileToTemp(args.currentSessionFile);
+				tmpSessionDir = tmp.dir;
+				tmpSessionPath = tmp.filePath;
+			}
+
+			plan = buildDelegateProcessPlan({
+				defaultCwd: args.defaultCwd,
+				task: buildDelegatedUserTask({
+					mode: contextMode,
+					task: args.task,
+					generatedContext,
+				}),
+				cwd: args.cwd,
+				sessionFilePath: tmpSessionPath ?? undefined,
+				promptFilePath: tmpPromptPath ?? undefined,
+				promptMode: teammate.promptMode,
+				model: teammate.model,
+				tools: resolvedTools,
+				disableAllTools,
+				teammateName: teammate.name,
+				lineage: args.lineage,
+				env: process.env,
+			});
+		} catch (error) {
+			return {
+				teammate: teammate.name,
+				teammateSource: teammate.source,
+				task: args.task,
+				exitCode: 1,
+				messages: [],
+				stderr: error instanceof Error ? error.message : String(error),
+				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+				step: args.step,
+			};
+		}
 
 		let wasAborted = false;
 		const exitCode = await new Promise<number>((resolve) => {
@@ -463,6 +533,20 @@ async function runSingleTeammate(args: {
 				// ignore cleanup errors
 			}
 		}
+		if (tmpSessionPath) {
+			try {
+				fs.unlinkSync(tmpSessionPath);
+			} catch {
+				// ignore cleanup errors
+			}
+		}
+		if (tmpSessionDir) {
+			try {
+				fs.rmdirSync(tmpSessionDir);
+			} catch {
+				// ignore cleanup errors
+			}
+		}
 	}
 }
 
@@ -490,11 +574,17 @@ const ChainItem = Type.Object({
 	cwd: Type.Optional(Type.String({ description: "Working directory for the teammate process" })),
 });
 
+const ContextModeSchema = StringEnum(TEAMMATE_CONTEXT_MODES, {
+	description:
+		"Context strategy override for this delegate call. new = fresh task only. inherit = continue from the caller's exact session context. summary = fresh context plus a generated task-focused summary. handoff = fresh context plus a generated task handoff packet.",
+});
+
 const DelegateParamsSchema = Type.Object({
 	teammate: Type.Optional(Type.String({ description: "Name of the teammate to invoke (single mode)" })),
 	task: Type.Optional(Type.String({ description: "Task to delegate (single mode)" })),
 	tasks: Type.Optional(Type.Array(TaskItem, { description: "Parallel teammate tasks" })),
 	chain: Type.Optional(Type.Array(ChainItem, { description: "Sequential teammate chain" })),
+	context: Type.Optional(ContextModeSchema),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the teammate process (single mode)" })),
 });
 
@@ -503,6 +593,7 @@ type DelegateParams = {
 	task?: string;
 	tasks?: Array<{ teammate: string; task: string; cwd?: string }>;
 	chain?: Array<{ teammate: string; task: string; cwd?: string }>;
+	context?: TeammateContextMode;
 	cwd?: string;
 };
 
@@ -531,13 +622,19 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 		label: "Delegate",
 		description: [
 			"Delegate a bounded task to one teammate, several teammates in parallel, or a sequential teammate chain, each running in an isolated pi subprocess with its own context window.",
-			"Use it for focused research, implementation, verification, or review work that benefits from a fresh context or teammate-specific prompt, tool, or model settings.",
+			"Use it for focused research, implementation, verification, or review work that benefits from a fresh context or teammate-specific prompt, tool, model, or context-transfer strategy.",
+			"Context strategies: new = fresh task only; inherit = continue from the caller's exact session context; summary = fresh context plus a generated task-focused summary; handoff = fresh context plus a generated task handoff packet.",
+			"If context is omitted, the teammate's configured default is used, and that default is new unless the teammate explicitly sets another mode.",
 			"Do not use it for vague handoffs; provide the exact files, constraints, and output you want back.",
 			"Returns the final teammate output plus structured execution details, and streams progress while work is running.",
 		].join(" "),
 		promptSnippet: "Delegate bounded work to a configured teammate in an isolated pi subprocess.",
 		promptGuidelines: [
 			"Use `delegate` when a focused subtask benefits from a fresh context or teammate-specific instructions.",
+			"Prefer `delegate` with context=new for tightly scoped work that can be described directly in the delegated task.",
+			"Use `delegate` with context=inherit only when the child must continue from the caller's exact transcript-level context rather than a distilled transfer.",
+			"Use `delegate` with context=summary when the child needs broader context but a compact task-focused summary is enough.",
+			"Use `delegate` with context=handoff when you are explicitly handing off one specific next task and want the child to receive a clean execution-oriented transfer packet.",
 			"When using `delegate`, provide the relevant files, constraints, and the exact output you want back.",
 		],
 		parameters: DelegateParamsSchema,
@@ -545,6 +642,8 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const runtimeConfig = loadTeammatesConfig(ctx.cwd).config.teammates;
 			const lineage = parseTeammatesLineage(process.env[TEAMMATES_LINEAGE_ENV]);
+			const currentBranch = ctx.sessionManager.getBranch();
+			const currentSessionFile = ctx.sessionManager.getSessionFile();
 			const discovery = discoverTeammates(ctx.cwd, {
 				loadProjectTeammates: runtimeConfig.loadProjectTeammates,
 			});
@@ -618,6 +717,11 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 						activeTools,
 						teammates,
 						lineage,
+						parentBranch: currentBranch,
+						currentSessionFile,
+						currentModel: ctx.model,
+						modelRegistry: ctx.modelRegistry,
+						contextOverride: params.context,
 						teammateName: step.teammate,
 						task: taskWithContext,
 						cwd: step.cwd,
@@ -690,6 +794,11 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 							activeTools,
 							teammates,
 							lineage,
+							parentBranch: currentBranch,
+							currentSessionFile,
+							currentModel: ctx.model,
+							modelRegistry: ctx.modelRegistry,
+							contextOverride: params.context,
 							teammateName: taskItem.teammate,
 							task: taskItem.task,
 							cwd: taskItem.cwd,
@@ -734,6 +843,11 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 					activeTools,
 					teammates,
 					lineage,
+					parentBranch: currentBranch,
+					currentSessionFile,
+					currentModel: ctx.model,
+					modelRegistry: ctx.modelRegistry,
+					contextOverride: params.context,
 					teammateName: params.teammate,
 					task: params.task,
 					cwd: params.cwd,
@@ -762,10 +876,12 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme) {
+			const contextSuffix = args.context ? theme.fg("muted", ` [${args.context}]`) : "";
 			if (args.chain && args.chain.length > 0) {
 				let text =
 					theme.fg("toolTitle", theme.bold("delegate ")) +
-					theme.fg("accent", `chain (${args.chain.length} steps)`);
+					theme.fg("accent", `chain (${args.chain.length} steps)`) +
+					contextSuffix;
 				for (let i = 0; i < Math.min(args.chain.length, 3); i++) {
 					const step = args.chain[i];
 					const cleanTask = step.task.replace(/\{previous\}/g, "").trim();
@@ -783,7 +899,8 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 			if (args.tasks && args.tasks.length > 0) {
 				let text =
 					theme.fg("toolTitle", theme.bold("delegate ")) +
-					theme.fg("accent", `parallel (${args.tasks.length} tasks)`);
+					theme.fg("accent", `parallel (${args.tasks.length} tasks)`) +
+					contextSuffix;
 				for (const taskItem of args.tasks.slice(0, 3)) {
 					const preview = taskItem.task.length > 40 ? `${taskItem.task.slice(0, 40)}...` : taskItem.task;
 					text += `\n  ${theme.fg("accent", taskItem.teammate)}${theme.fg("dim", ` ${preview}`)}`;
@@ -793,7 +910,7 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 			}
 			const teammateName = args.teammate || "...";
 			const preview = args.task ? (args.task.length > 60 ? `${args.task.slice(0, 60)}...` : args.task) : "...";
-			let text = theme.fg("toolTitle", theme.bold("delegate ")) + theme.fg("accent", teammateName);
+			let text = theme.fg("toolTitle", theme.bold("delegate ")) + theme.fg("accent", teammateName) + contextSuffix;
 			text += `\n  ${theme.fg("dim", preview)}`;
 			return new Text(text, 0, 0);
 		},

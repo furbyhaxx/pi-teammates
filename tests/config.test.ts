@@ -15,6 +15,11 @@ assert.deepEqual(DEFAULT_TEAMMATES_CONFIG, {
 		collapsedItemCount: 10,
 		perTaskOutputCap: 50 * 1024,
 		toolAliases: {},
+		context: {
+			models: [],
+			summaryModels: [],
+			handoffModels: [],
+		},
 	},
 });
 
@@ -35,6 +40,10 @@ writeFileSync(
 				tool_aliases: {
 					bash: ["shell_exec"],
 				},
+				context: {
+					models: ["deepseek/deepseek-v4-flash:high"],
+					summary_models: ["github-copilot/gpt-5.4-mini"],
+				},
 			},
 		},
 		null,
@@ -54,6 +63,9 @@ writeFileSync(
 					bash: ["shell_exec", "shell_write_stdin"],
 					scout: ["read"],
 				},
+				context: {
+					handoffModels: ["deepseek/deepseek-v4-pro"],
+				},
 			},
 		},
 		null,
@@ -72,6 +84,11 @@ assert.deepEqual(loaded.config, {
 		toolAliases: {
 			bash: ["shell_exec", "shell_write_stdin"],
 			scout: ["read"],
+		},
+		context: {
+			models: ["deepseek/deepseek-v4-flash:high"],
+			summaryModels: ["github-copilot/gpt-5.4-mini"],
+			handoffModels: ["deepseek/deepseek-v4-pro"],
 		},
 	},
 });

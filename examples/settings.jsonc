@@ -42,11 +42,43 @@
 
       // If a teammate sets tools.interactiveShell=true, include both session tools.
       "interactiveShell": ["shell_exec", "shell_write_stdin"]
+    },
+
+    // Snake-case aliases such as `summary_models` and `handoff_models`
+    // are accepted too, but camelCase is the documented form.
+    "context": {
+      // default: []
+      // values: array of model refs in provider/model[:thinking] format
+      // Preferred model list for generating context packets for `summary` or `handoff`.
+      // Candidates are tried in order. If all fail or auth is unavailable,
+      // pi-teammates falls back to the CURRENT SESSION MODEL as the last resort.
+      "models": [
+        "deepseek/deepseek-v4-flash:high"
+      ],
+
+      // default: []
+      // values: array of model refs in provider/model[:thinking] format
+      // Optional override used only for teammate `context: summary` or delegate `context: summary`.
+      // When empty, `context.models` is used instead.
+      "summaryModels": [
+        "deepseek/deepseek-v4-flash"
+      ],
+
+      // default: []
+      // values: array of model refs in provider/model[:thinking] format
+      // Optional override used only for teammate `context: handoff` or delegate `context: handoff`.
+      // When empty, `context.models` is used instead.
+      "handoffModels": [
+        "deepseek/deepseek-v4-pro"
+      ]
     }
   }
 
   // Reminder: teammate-level delegation is NOT a top-level frontmatter key.
-  // It belongs inside each teammate markdown file's tools map:
+  // It belongs inside each teammate markdown file's tools map,
+  // while context strategy IS a top-level teammate frontmatter key:
+  //
+  // context: new | inherit | summary | handoff
   //
   // tools:
   //   read: true
