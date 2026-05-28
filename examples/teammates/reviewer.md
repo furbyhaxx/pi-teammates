@@ -2,6 +2,7 @@
 name: reviewer
 description: Reviews changes for correctness, regressions, and missing validation.
 model: anthropic/claude-sonnet-4-5
+prompt: append
 tools:
   read: true
   grep: true

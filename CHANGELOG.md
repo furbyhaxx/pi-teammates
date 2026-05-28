@@ -20,3 +20,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Changed
 
 - Moved teammate delegation enablement into the teammate `tools` map as `tools.delegate` instead of a separate top-level frontmatter key.
+- Updated all example teammate files to declare `prompt: append` explicitly so the prompt mode is documented in-place.

@@ -2,6 +2,7 @@
 name: scout
 description: Fast codebase reconnaissance and scoped file discovery.
 model: deepseek/deepseek-v4-flash:high
+prompt: append
 tools:
   read: true
   grep: true
