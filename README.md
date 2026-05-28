@@ -41,7 +41,7 @@ pi install npm:@furbyhaxx/pi-teammates
 - Supports teammate frontmatter `model: provider/model:thinking` values directly.
 - Supports teammate `prompt: append | replace` frontmatter.
 - Supports teammate `tools` maps with per-tool enable/disable rules and settings-defined aliases.
-- Denies delegation by default inside child teammates unless `delegate: true` is set.
+- Denies delegation by default inside child teammates unless `tools.delegate: true` is set.
 - Blocks recursive delegation back into the current teammate lineage.
 - Appends a dynamic teammate XML block to the system prompt only when delegation is actually available.
 - Makes the subagent example limits configurable through `settings.json`.
@@ -54,6 +54,8 @@ Configuration lives in Pi's normal scoped settings files under the `teammates` k
 - Project: `./.pi/settings.json`
 
 Project settings override global settings. The extension deep-merges only its own `teammates` block.
+
+A fully commented example lives in [`examples/settings.jsonc`](examples/settings.jsonc).
 
 ### Defaults
 
@@ -122,7 +124,6 @@ Teammates are Markdown files with YAML frontmatter:
 name: scout
 description: Fast codebase reconnaissance and scoped file discovery.
 model: deepseek/deepseek-v4-flash:high
-delegate: false
 prompt: append
 tools:
   read: true
@@ -131,6 +132,7 @@ tools:
   ls: true
   write: false
   bash: true
+  delegate: false
 ---
 Inspect the repository quickly, stay scoped, and return only the findings that matter.
 ```
@@ -142,9 +144,8 @@ Inspect the repository quickly, stay scoped, and return only the findings that m
 | `name` | yes | Unique teammate identifier used by the `delegate` tool. |
 | `description` | yes | Short specialization summary used in the dynamic system prompt list. |
 | `model` | no | Passed directly to `pi --model`, so `provider/model:thinking` works. |
-| `delegate` | no | Defaults to `false`. When `true`, the child teammate may call `delegate` unless blocked by lineage recursion rules. |
 | `prompt` | no | `append` (default) appends the Markdown body to Pi's system prompt; `replace` replaces the base prompt with the Markdown body. |
-| `tools` | no | Tool override map. See semantics below. |
+| `tools` | no | Tool override map. This is also where `delegate` belongs. See semantics below. |
 
 ### `tools` semantics
 
@@ -153,10 +154,24 @@ The `tools` map behaves like this:
 - If the map is omitted, the teammate inherits the current active tool set.
 - If the map contains at least one `true`, it behaves like an allowlist seeded from the `true` entries.
 - If the map contains only `false` entries, it behaves like a hide list applied to the inherited active tools.
-- `delegate` is still removed unless `delegate: true` is set.
+- `delegate` is still removed unless `tools.delegate: true` is set.
 - Aliases from `teammates.toolAliases` are expanded before filtering.
 
 This lets you express either narrow allowlists or small deltas against the current session tool set.
+
+Example:
+
+```yaml
+tools:
+  read: true
+  grep: true
+  find: true
+  ls: true
+  write: false
+  edit: false
+  bash: false
+  delegate: false
+```
 
 ## The `delegate` tool
 
@@ -211,14 +226,14 @@ Only teammates that are actually valid delegation targets for the current lineag
 ## Recursion rules
 
 - Top-level sessions may delegate freely.
-- Child teammates cannot delegate at all unless `delegate: true` is set.
+- Child teammates cannot delegate at all unless `tools.delegate: true` is set.
 - When a child teammate can delegate, it still cannot delegate to itself or any teammate already present in its current delegation lineage.
 
 That blocks obvious recursion loops without pretending the model will police itself.
 
 ## Example teammates
 
-Example teammate definitions live in [`examples/teammates/`](examples/teammates/).
+Example teammate definitions live in [`examples/teammates/`](examples/teammates/), and a commented settings example lives in [`examples/settings.jsonc`](examples/settings.jsonc).
 
 ## Package manifest
 

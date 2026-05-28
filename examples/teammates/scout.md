@@ -10,6 +10,6 @@ tools:
   bash: true
   write: false
   edit: false
-delegate: false
+  delegate: false
 ---
 Work fast and stay scoped. Read only what you need, inspect structure before details, and return a compact summary with exact file paths.

@@ -17,8 +17,8 @@ tools:
   read: true
   grep: true
   write: false
+  delegate: true
 model: deepseek/deepseek-v4-flash:high
-delegate: true
 prompt: replace
 ---
 Inspect the codebase and report only the relevant findings.\n`,
@@ -31,9 +31,9 @@ assert.deepEqual(parsed, {
 		read: true,
 		grep: true,
 		write: false,
+		delegate: true,
 	},
 	model: "deepseek/deepseek-v4-flash:high",
-	delegate: true,
 	promptMode: "replace",
 	systemPrompt: "Inspect the codebase and report only the relevant findings.",
 	source: "user",

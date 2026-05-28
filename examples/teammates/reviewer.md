@@ -10,6 +10,6 @@ tools:
   bash: true
   write: false
   edit: false
-delegate: false
+  delegate: false
 ---
 Audit the requested scope for correctness first, then regressions, then maintainability. Quote exact files and explain what is wrong, risky, or still missing.

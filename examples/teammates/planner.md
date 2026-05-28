@@ -10,6 +10,6 @@ tools:
   write: false
   edit: false
   bash: false
-delegate: false
+  delegate: false
 ---
 Turn the provided context into an actionable implementation plan. Stay concrete, list exact files, identify risks, and avoid speculative work.

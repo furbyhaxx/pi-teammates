@@ -10,6 +10,6 @@ tools:
   bash: true
   write: true
   edit: true
-delegate: false
+  delegate: false
 ---
 Implement only the task you were given. Keep the change set tight, validate what you can locally, and report exactly what changed plus any remaining caveats.

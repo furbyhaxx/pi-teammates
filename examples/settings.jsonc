@@ -1,0 +1,55 @@
+{
+  // pi-teammates scoped settings.
+  // Place this under either:
+  // - ${PI_CODING_AGENT_DIR:-~/.pi/agent}/settings.json
+  // - ./.pi/settings.json
+  // Project settings override global settings.
+  "teammates": {
+    // default: true
+    // values: true | false
+    // true  = load teammate files from the nearest ancestor .pi/teammates/**/*.md
+    // false = ignore project-scoped teammates and use only user-scoped teammates
+    "loadProjectTeammates": true,
+
+    // default: 8
+    // values: positive integer
+    // Hard cap for how many teammate tasks one delegate call may launch in parallel mode.
+    "maxParallelTasks": 8,
+
+    // default: 4
+    // values: positive integer
+    // Worker concurrency used while executing parallel teammate tasks.
+    "maxConcurrency": 4,
+
+    // default: 10
+    // values: positive integer
+    // How many recent items the collapsed delegate tool renderer keeps visible.
+    "collapsedItemCount": 10,
+
+    // default: 51200
+    // values: positive integer byte count
+    // Max model-visible bytes kept per parallel task summary.
+    // Full results still remain available in tool details.
+    "perTaskOutputCap": 51200,
+
+    // default: {}
+    // values: map<string, string[]>
+    // Lets teammate tool names expand to one or more actual pi tool names.
+    // Useful when your environment uses extension tools instead of the builtin names.
+    "toolAliases": {
+      // If a teammate sets tools.bash=true, include shell_exec too.
+      "bash": ["shell_exec"],
+
+      // If a teammate sets tools.interactiveShell=true, include both session tools.
+      "interactiveShell": ["shell_exec", "shell_write_stdin"]
+    }
+  }
+
+  // Reminder: teammate-level delegation is NOT a top-level frontmatter key.
+  // It belongs inside each teammate markdown file's tools map:
+  //
+  // tools:
+  //   read: true
+  //   grep: true
+  //   delegate: false
+}

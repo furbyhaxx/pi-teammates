@@ -33,6 +33,19 @@ assert.deepEqual(
 	["read", "grep"],
 );
 
+assert.deepEqual(
+	resolveTeammateToolNames({
+		activeTools: ["read", "grep", "delegate"],
+		toolToggles: {
+			read: true,
+			delegate: true,
+		},
+		toolAliases: {},
+		delegateEnabled: true,
+	}),
+	["read", "delegate"],
+);
+
 assert.equal(
 	canDelegateToTeammate({
 		targetName: "reviewer",
@@ -56,7 +69,6 @@ const prompt = buildTeamPromptBlock([
 		filePath: '/tmp/scout.md',
 		systemPrompt: 'ignored',
 		promptMode: 'append',
-		delegate: false,
 	},
 	{
 		name: 'reviewer',
@@ -65,7 +77,6 @@ const prompt = buildTeamPromptBlock([
 		filePath: '/tmp/reviewer.md',
 		systemPrompt: 'ignored',
 		promptMode: 'append',
-		delegate: true,
 	},
 ]);
 

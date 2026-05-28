@@ -10,7 +10,6 @@ export interface TeammateConfig {
 	description: string;
 	tools?: Record<string, boolean>;
 	model?: string;
-	delegate: boolean;
 	promptMode: TeammatePromptMode;
 	systemPrompt: string;
 	source: TeammateSource;
@@ -45,7 +44,6 @@ export function parseTeammateMarkdown(
 		description,
 		tools: parseToolToggles(frontmatter.tools),
 		model: typeof frontmatter.model === "string" ? frontmatter.model.trim() || undefined : undefined,
-		delegate: frontmatter.delegate === true,
 		promptMode: frontmatter.prompt === "replace" ? "replace" : "append",
 		systemPrompt: body,
 		source,

@@ -315,7 +315,7 @@ async function runSingleTeammate(args: {
 		activeTools: args.activeTools,
 		toolToggles: teammate.tools,
 		toolAliases: args.runtimeConfig.toolAliases,
-		delegateEnabled: teammate.delegate,
+		delegateEnabled: teammate.tools?.delegate === true,
 	});
 	const disableAllTools = teammate.tools !== undefined && resolvedTools.length === 0;
 
