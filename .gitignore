@@ -1,0 +1,15 @@
+node_modules/
+npm-debug.log*
+*.log
+*.swp
+*.swo
+.DS_Store
+.env
+.env.*
+!.env.example
+.pi/
+dist/
+coverage/
+.tmp/
+tmp/
+subagent-artifacts/
