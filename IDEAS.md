@@ -1,7 +1,16 @@
+# IDEAS
 
+## Done
 
-- `/team:delegate --agent <agent> [--improve] <task>` and `/handoff --agent <agent> [--improve] <task>` user commands that allow ad-hoc delegation/handoff of scoped tasks into by the user where when it's done we feed back the invocation + results to the main session so the agent is aware that this happened.  `--improve` can be used to let the current session model enhance/improve <task> based on the current session context which would show the generated and improved <task> to the user for editing and confirmation, this is the same when context = summary|handoff.
-- `/team:manage` user command that shows a polished, interactive widget that lists all agents, allows chaging them or creating new ones
-- add `/team:summarize` and `/team:handoff` user commands that create a new session from either summarizing or handing off the current one into a new one (not subagent, normal pi session).
-- add a `/team:status` user command that shows a real time overlay with what is going on currently
-- Extend teammate frontmatter with a `skills[]` field that allows listing skills that are automatically loaded and injected on each invocation of this teammate
+- `/team:delegate --agent <agent> [--improve] <task>` manual teammate delegation that keeps the user in the current session and feeds the invocation plus results back into the main session transcript.
+- `/team:handoff --agent <agent> [--improve] <task>` manual teammate handoff that keeps the user in the current session and uses child `context=handoff` semantics.
+- `--improve` task refinement using the current session model and current session context, followed by user review/edit before execution.
+- `/team:manage` interactive teammate management UI for creating, editing, duplicating, and deleting teammate files.
+- `/team:status` live overlay for current teammate activity and resumable teammate sessions.
+- `/summarize [next task]` to create a new normal Pi session from a generated summary packet of the current session.
+- `/handoff [next task]` to create a new normal Pi session from a generated handoff packet of the current session.
+- Teammate frontmatter `skills[]` support, with automatic loading and prompt injection on each teammate invocation and persisted resume metadata.
+
+## Open
+
+- Add new ideas here.
