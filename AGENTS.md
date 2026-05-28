@@ -9,6 +9,7 @@ This repository ships a Pi extension for teammate delegation, context transfer, 
 - Load `online-research` when validating upstream Pi APIs, examples, or other current external facts.
 
 ## Repo rules
+- Do not create monstrosities of typescript files with 800+ SLoC, split them into more granular submodules.
 - Whenever you edit code, docs, tests, examples, prompts, or package metadata, update `CHANGELOG.md` in the same change.
 - Keep `README.md`, `examples/settings.jsonc`, `examples/teammates/*.md`, and the relevant tests in sync with any change to frontmatter keys, config keys/defaults, context modes, or `delegate` behavior.
 - Keep the package entrypoint at `src/index.ts` unless the user explicitly asks for a structural change; if that changes, update `package.json`, `README.md`, and this file too.

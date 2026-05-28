@@ -18,6 +18,9 @@ tools:
   grep: true
   write: false
   delegate: true
+skills:
+  - systematic-debugging
+  - test-driven-development
 model: deepseek/deepseek-v4-flash:high
 context: handoff
 prompt: replace
@@ -34,6 +37,7 @@ assert.deepEqual(parsed, {
 		write: false,
 		delegate: true,
 	},
+	skills: ["systematic-debugging", "test-driven-development"],
 	model: "deepseek/deepseek-v4-flash:high",
 	contextMode: "handoff",
 	promptMode: "replace",
@@ -41,6 +45,20 @@ assert.deepEqual(parsed, {
 	source: "user",
 	filePath: join("/tmp", "scout.md"),
 });
+
+assert.throws(
+	() =>
+		parseTeammateMarkdown(
+			join("/tmp", "Bad.md"),
+			"user",
+			`---
+name: ../Bad
+description: nope
+---
+prompt\n`,
+		),
+	/teammate names must use lowercase letters, numbers, and hyphens only/,
+);
 
 const root = mkdtempSync(join(tmpdir(), "pi-teammates-discovery-"));
 const agentDir = join(root, "agent");

@@ -18,6 +18,7 @@ export interface TeammateJobRecord {
 	cwd: string;
 	toolNames: string[];
 	disableAllTools: boolean;
+	skills: string[];
 	promptMode: TeammatePromptMode;
 	systemPrompt: string;
 	status: TeammateJobStatus;
@@ -38,6 +39,7 @@ export function createTeammateJobRecord(args: {
 	cwd: string;
 	toolNames: string[];
 	disableAllTools: boolean;
+	skills?: string[];
 	promptMode: TeammatePromptMode;
 	systemPrompt: string;
 	status: TeammateJobStatus;
@@ -57,6 +59,7 @@ export function createTeammateJobRecord(args: {
 		cwd: args.cwd,
 		toolNames: args.toolNames,
 		disableAllTools: args.disableAllTools,
+		skills: parseSkillNames(args.skills),
 		promptMode: args.promptMode,
 		systemPrompt: args.systemPrompt,
 		status: args.status,
@@ -78,22 +81,35 @@ export function collectLatestTeammateJobs(entries: SessionEntry[]): Map<string, 
 	const jobs = new Map<string, TeammateJobRecord>();
 	for (const entry of entries) {
 		if (entry.type !== "custom" || entry.customType !== TEAMMATE_JOB_CUSTOM_TYPE) continue;
-		const data = isTeammateJobRecord(entry.data) ? normalizeInterrupted(entry.data) : undefined;
+		const data = isTeammateJobRecord(entry.data) ? normalizeJobRecord(entry.data) : undefined;
 		if (!data) continue;
 		jobs.set(data.childSessionId, data);
 	}
 	return jobs;
 }
 
-function normalizeInterrupted(record: TeammateJobRecord): TeammateJobRecord {
-	if (record.status !== "running") return record;
+export function collectInterruptedTeammateJobs(entries: SessionEntry[]): TeammateJobRecord[] {
+	return Array.from(collectLatestTeammateJobs(entries).values()).filter((record) => record.status === "running");
+}
+
+type TeammateJobRecordInput = Omit<TeammateJobRecord, "skills"> & { skills?: unknown };
+
+function normalizeJobRecord(record: TeammateJobRecordInput): TeammateJobRecord {
 	return {
 		...record,
-		status: "interrupted",
+		skills: parseSkillNames(record.skills),
 	};
 }
 
-function isTeammateJobRecord(value: unknown): value is TeammateJobRecord {
+function parseSkillNames(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value
+		.filter((skill): skill is string => typeof skill === "string")
+		.map((skill) => skill.trim())
+		.filter((skill) => skill.length > 0);
+}
+
+function isTeammateJobRecord(value: unknown): value is TeammateJobRecordInput {
 	if (!value || typeof value !== "object") return false;
 	const record = value as Record<string, unknown>;
 	return (
@@ -107,6 +123,7 @@ function isTeammateJobRecord(value: unknown): value is TeammateJobRecord {
 		typeof record.cwd === "string" &&
 		Array.isArray(record.toolNames) &&
 		typeof record.disableAllTools === "boolean" &&
+		(record.skills === undefined || Array.isArray(record.skills)) &&
 		typeof record.promptMode === "string" &&
 		typeof record.systemPrompt === "string" &&
 		typeof record.status === "string" &&

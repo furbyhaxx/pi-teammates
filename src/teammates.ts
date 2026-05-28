@@ -10,6 +10,7 @@ export interface TeammateConfig {
 	name: string;
 	description: string;
 	tools?: Record<string, boolean>;
+	skills: string[];
 	model?: string;
 	contextMode: TeammateContextMode;
 	promptMode: TeammatePromptMode;
@@ -40,11 +41,15 @@ export function parseTeammateMarkdown(
 	if (!name || !description) {
 		throw new Error(`Invalid teammate file ${filePath}: missing name or description`);
 	}
+	if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
+		throw new Error(`Invalid teammate file ${filePath}: teammate names must use lowercase letters, numbers, and hyphens only`);
+	}
 
 	return {
 		name,
 		description,
 		tools: parseToolToggles(frontmatter.tools),
+		skills: parseSkillNames(frontmatter.skills),
 		model: typeof frontmatter.model === "string" ? frontmatter.model.trim() || undefined : undefined,
 		contextMode: parseTeammateContextMode(frontmatter.context),
 		promptMode: frontmatter.prompt === "replace" ? "replace" : "append",
@@ -127,6 +132,14 @@ function parseToolToggles(value: unknown): Record<string, boolean> | undefined {
 		if (typeof enabled === "boolean") toggles[toolName] = enabled;
 	}
 	return Object.keys(toggles).length > 0 ? toggles : undefined;
+}
+
+function parseSkillNames(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value
+		.filter((skill): skill is string => typeof skill === "string")
+		.map((skill) => skill.trim())
+		.filter((skill) => skill.length > 0);
 }
 
 function isDirectory(targetPath: string): boolean {

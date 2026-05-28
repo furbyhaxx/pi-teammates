@@ -76,9 +76,11 @@
 
   // Reminder: teammate-level delegation is NOT a top-level frontmatter key.
   // It belongs inside each teammate markdown file's tools map,
-  // while context strategy IS a top-level teammate frontmatter key:
+  // while context strategy and skills are top-level teammate frontmatter keys.
+  // Listed skills are loaded automatically into teammate invocations and resume flows:
   //
   // context: new | inherit | summary | handoff
+  // skills: [systematic-debugging, test-driven-development]
   //
   // tools:
   //   read: true

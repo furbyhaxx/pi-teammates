@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+	collectInterruptedTeammateJobs,
 	collectLatestTeammateJobs,
 	createTeammateJobRecord,
 	TEAMMATE_JOB_CUSTOM_TYPE,
@@ -18,12 +19,15 @@ const running = createTeammateJobRecord({
 	cwd: "/repo",
 	toolNames: ["read", "grep"],
 	disableAllTools: false,
+	skills: ["systematic-debugging", "test-driven-development"],
 	promptMode: "append",
 	systemPrompt: "Scout prompt",
 	status: "running",
 	model: "deepseek/deepseek-v4-flash:high",
 	createdAt: "2026-05-28T00:00:00.000Z",
 });
+
+assert.deepEqual(running.skills, ["systematic-debugging", "test-driven-development"]);
 
 const completed = updateTeammateJobRecord(running, "completed");
 
@@ -47,8 +51,9 @@ const jobs = collectLatestTeammateJobs([
 ]);
 
 assert.equal(jobs.get("child-1")?.status, "completed");
+assert.deepEqual(jobs.get("child-1")?.skills, ["systematic-debugging", "test-driven-development"]);
 
-const interrupted = collectLatestTeammateJobs([
+const interrupted = collectInterruptedTeammateJobs([
 	{
 		type: "custom",
 		id: "3",
@@ -59,5 +64,5 @@ const interrupted = collectLatestTeammateJobs([
 	},
 ]);
 
-assert.equal(interrupted.get("child-1")?.status, "interrupted");
+assert.equal(interrupted[0]?.status, "running");
 console.log("job registry tests passed");

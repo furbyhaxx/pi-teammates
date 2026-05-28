@@ -1,6 +1,6 @@
 # pi-teammates
 
-A [pi](https://github.com/earendil-works/pi) coding-agent extension for delegating bounded work to configured teammates running in isolated subprocesses.
+A [pi](https://github.com/earendil-works/pi) coding-agent extension for delegating bounded work to configured teammates running in isolated internal Pi sessions.
 
 It reworks Pi's subagent example into a settings-driven package with scoped teammate discovery, tool aliasing, prompt modes, context-transfer strategies, and recursion guards. Because just renaming `subagent` to `delegate` would have been insultingly lazy.
 
@@ -39,6 +39,7 @@ pi install npm:@furbyhaxx/pi-teammates
 - Discovers teammates from user and project scopes.
 - Loads project teammates by default and lets settings disable them globally or per project.
 - Supports teammate frontmatter `model: provider/model:thinking` values directly.
+- Parses teammate frontmatter `skills` lists and injects those skills into teammate session prompts automatically.
 - Supports teammate frontmatter `context: new | inherit | summary | handoff` values.
 - Supports teammate `prompt: append | replace` frontmatter.
 - Supports configurable context-generation model lists with current-session-model fallback.
@@ -49,6 +50,7 @@ pi install npm:@furbyhaxx/pi-teammates
 - Returns teammate session ids so broken runs can be resumed through `delegate` itself.
 - Appends a dynamic teammate XML block to the system prompt only when delegation is actually available.
 - Makes the subagent example limits configurable through `settings.json`.
+- Adds user commands for manual teammate offloading, top-level summary/handoff session creation, teammate status, and teammate management.
 
 ## Configuration
 
@@ -152,20 +154,34 @@ Teammates are Markdown files with YAML frontmatter:
 ```md
 ---
 name: scout
-description: Fast codebase reconnaissance and scoped file discovery.
-model: deepseek/deepseek-v4-flash:high
+description: Maps repository structure, finds relevant files, and returns evidence-backed reconnaissance without planning or editing.
+model: deepseek/deepseek-v4-flash:xhigh
 context: new
 prompt: append
+skills:
+  - online-research
 tools:
+  delegate: false
   read: true
+  bash: true
+  edit: false
+  write: false
   grep: true
   find: true
   ls: true
-  write: false
-  bash: true
-  delegate: false
+  plan_tracker: false
+  web_search: true
+  web_image_search: false
+  web_fetch: true
+  web_repo_clone: true
+  web_search_results: true
+  AskUserQuestion: false
 ---
-Inspect the repository quickly, stay scoped, and return only the findings that matter.
+# Role
+You are a reconnaissance specialist for scoped technical investigation.
+
+# Task
+Find only the files, symbols, commands, and facts needed for the delegated question. Establish structure first, then zoom into relevant details.
 ```
 
 ### Frontmatter fields
@@ -177,6 +193,7 @@ Inspect the repository quickly, stay scoped, and return only the findings that m
 | `model` | no | Passed directly to `pi --model`, so `provider/model:thinking` works. |
 | `context` | no | `new` (default), `inherit`, `summary`, or `handoff`. Controls the teammate's default context-transfer strategy. |
 | `prompt` | no | `append` (default) appends the Markdown body to Pi's system prompt; `replace` replaces the base prompt with the Markdown body. |
+| `skills` | no | Ordered list of Pi skill names loaded into the teammate invocation automatically and persisted for resume flows. |
 | `tools` | no | Tool override map. This is also where `delegate` belongs. See semantics below. |
 
 ### `context` semantics
@@ -266,6 +283,41 @@ Optional `cwd` is supported in single, parallel task items, and chain step items
 
 `resumeSessionId` is an alternative mode. Use the session id returned by a previous `delegate` call to reopen that persisted teammate session and continue its agent flow after something broke.
 
+## User commands
+
+### Stay in the current session and manually offload work
+
+```text
+/team:delegate --agent scout [--improve] <task>
+/team:handoff --agent reviewer [--improve] <task>
+```
+
+- `/team:delegate` uses the teammate default context mode unless you later extend it through the tool path.
+- `/team:handoff` forces child `context=handoff` for execution-oriented offloading.
+- `--improve` uses the current session model plus current session context to rewrite the task, then opens the result in an editor so you can confirm or adjust it.
+- When the teammate finishes, the command feeds a transcript summary back into the current session so the main agent remains aware that the manual offload happened.
+
+### Create a new normal Pi session from the current one
+
+```text
+/summarize [next task]
+/handoff [next task]
+```
+
+- `/summarize` creates a new normal Pi session seeded from a generated summary packet.
+- `/handoff` creates a new normal Pi session seeded from a generated handoff packet.
+- Both open the generated prompt in the new session editor for review before you continue.
+
+### Inspect teammate activity and definitions
+
+```text
+/team:status
+/team:manage
+```
+
+- `/team:status` opens a live overlay showing teammate job state, session ids, context mode, and resumable interrupted runs.
+- `/team:manage` opens an interactive teammate manager for creating, editing, duplicating, and deleting teammate files.
+
 ## Internal teammate sessions
 
 Each delegate invocation now creates a real persisted child session stored under the parent session directory, conceptually like:
@@ -285,7 +337,7 @@ When `delegate` is active for the current session, the extension appends a dynam
 ```xml
 Below is a list of your teammates with their specializations, capabilities and domains. Use this information to delegate narrow, concrete work that benefits from a fresh context window or teammate-specific tools, prompts, or model settings. Delegate execution, not judgment: decide what needs to be done, pass the relevant files and constraints, and ask for the exact output you want back.
 <team>
-<member name="scout">Fast codebase reconnaissance and scoped file discovery.</member>
+<member name="scout">Maps repository structure, finds relevant files, and returns evidence-backed reconnaissance without planning or editing.</member>
 </team>
 ```
 
@@ -302,6 +354,8 @@ That blocks obvious recursion loops without pretending the model will police its
 ## Example teammates
 
 Example teammate definitions live in [`examples/teammates/`](examples/teammates/), and a commented settings example lives in [`examples/settings.jsonc`](examples/settings.jsonc).
+
+The bundled profiles are structured operating policies, not magic one-liners. Copy them, then tune descriptions, models, skills, tools, and output contracts for your own workflow.
 
 ## Package manifest
 

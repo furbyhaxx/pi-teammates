@@ -26,18 +26,33 @@ import {
 	type TeammateContextMode,
 } from "./context-transfer.ts";
 import {
+	buildManualDelegationTranscript,
+	defaultNewSessionTask,
+	improveDelegationTask,
+	parseTeamCommandArgs,
+} from "./command-helpers.ts";
+import {
 	buildTeamPromptBlock,
 	canDelegateToTeammate,
 	resolveTeammateToolNames,
 } from "./delegation-policy.ts";
 import { parseTeammatesLineage, TEAMMATES_LINEAGE_ENV } from "./delegate-process.ts";
 import {
+	collectInterruptedTeammateJobs,
 	collectLatestTeammateJobs,
 	createTeammateJobRecord,
 	TEAMMATE_JOB_CUSTOM_TYPE,
 	type TeammateJobRecord,
 	updateTeammateJobRecord,
 } from "./job-registry.ts";
+import { runTeammateManager } from "./manage-widget.ts";
+import { showTeammateStatusOverlay } from "./status-widget.ts";
+import { buildInjectedSkillsPrompt } from "./teammate-skills.ts";
+import {
+	createTeammateSessionState,
+	getLatestTeammateSessionState,
+	TEAMMATE_STATE_CUSTOM_TYPE,
+} from "./teammate-state.ts";
 import { discoverTeammates, type TeammateConfig } from "./teammates.ts";
 
 function formatTokens(count: number): string {
@@ -440,6 +455,16 @@ async function runSingleTeammate(args: {
 			};
 		}
 
+		childSessionManager.appendCustomEntry(
+			TEAMMATE_STATE_CUSTOM_TYPE,
+			createTeammateSessionState({
+				teammateName: teammate.name,
+				contextMode,
+				lineage: [...args.lineage, teammate.name],
+				parentSessionId: args.parentSessionId,
+			}),
+		);
+
 		currentResult.sessionId = childSessionId;
 		currentResult.sessionPath = childSessionPath;
 		currentResult.status = "running";
@@ -457,6 +482,7 @@ async function runSingleTeammate(args: {
 			cwd: childCwd,
 			toolNames: resolvedTools,
 			disableAllTools,
+			skills: teammate.skills,
 			promptMode: teammate.promptMode,
 			systemPrompt: teammate.systemPrompt,
 			status: "running",
@@ -494,14 +520,27 @@ async function runSingleTeammate(args: {
 			cwd: childCwd,
 			agentDir,
 			settingsManager: childSettingsManager,
-			systemPromptOverride:
-				teammate.promptMode === "replace" ? () => teammate.systemPrompt : undefined,
-			appendSystemPromptOverride:
-				teammate.promptMode === "append" && teammate.systemPrompt.trim().length > 0
-					? (base) => [...base, teammate.systemPrompt]
-					: undefined,
 		});
 		await childResourceLoader.reload();
+		const injectedSkills = await buildInjectedSkillsPrompt({
+			skillNames: teammate.skills,
+			availableSkills: childResourceLoader.getSkills().skills,
+		});
+		if (injectedSkills.missing.length > 0) {
+			currentResult.stderr += `Missing teammate skills: ${injectedSkills.missing.join(", ")}\n`;
+		}
+		const promptSections = [teammate.systemPrompt, injectedSkills.prompt].filter((section) => section.trim().length > 0);
+		const sessionResourceLoader = new DefaultResourceLoader({
+			cwd: childCwd,
+			agentDir,
+			settingsManager: childSettingsManager,
+			systemPromptOverride: teammate.promptMode === "replace" ? () => promptSections.join("\n\n") : undefined,
+			appendSystemPromptOverride:
+				teammate.promptMode === "append" && promptSections.length > 0
+					? (base) => [...base, ...promptSections]
+					: undefined,
+		});
+		await sessionResourceLoader.reload();
 
 		sessionHandle = await createAgentSession({
 			cwd: childCwd,
@@ -511,7 +550,7 @@ async function runSingleTeammate(args: {
 			thinkingLevel,
 			sessionManager: childSessionManager,
 			settingsManager: childSettingsManager,
-			resourceLoader: childResourceLoader,
+			resourceLoader: sessionResourceLoader,
 			tools: disableAllTools ? undefined : resolvedTools,
 			noTools: disableAllTools ? "all" : undefined,
 		});
@@ -644,14 +683,27 @@ async function resumeTeammateSession(args: {
 			cwd: childCwd,
 			agentDir,
 			settingsManager: childSettingsManager,
-			systemPromptOverride:
-				args.job.promptMode === "replace" ? () => args.job.systemPrompt : undefined,
-			appendSystemPromptOverride:
-				args.job.promptMode === "append" && args.job.systemPrompt.trim().length > 0
-					? (base) => [...base, args.job.systemPrompt]
-					: undefined,
 		});
 		await childResourceLoader.reload();
+		const injectedSkills = await buildInjectedSkillsPrompt({
+			skillNames: args.job.skills,
+			availableSkills: childResourceLoader.getSkills().skills,
+		});
+		if (injectedSkills.missing.length > 0) {
+			result.stderr += `Missing teammate skills: ${injectedSkills.missing.join(", ")}\n`;
+		}
+		const promptSections = [args.job.systemPrompt, injectedSkills.prompt].filter((section) => section.trim().length > 0);
+		const sessionResourceLoader = new DefaultResourceLoader({
+			cwd: childCwd,
+			agentDir,
+			settingsManager: childSettingsManager,
+			systemPromptOverride: args.job.promptMode === "replace" ? () => promptSections.join("\n\n") : undefined,
+			appendSystemPromptOverride:
+				args.job.promptMode === "append" && promptSections.length > 0
+					? (base) => [...base, ...promptSections]
+					: undefined,
+		});
+		await sessionResourceLoader.reload();
 
 		sessionHandle = await createAgentSession({
 			cwd: childCwd,
@@ -659,7 +711,7 @@ async function resumeTeammateSession(args: {
 			modelRegistry: args.modelRegistry,
 			sessionManager: childSessionManager,
 			settingsManager: childSettingsManager,
-			resourceLoader: childResourceLoader,
+			resourceLoader: sessionResourceLoader,
 			tools: args.job.disableAllTools ? undefined : args.job.toolNames,
 			noTools: args.job.disableAllTools ? "all" : undefined,
 		});
@@ -786,13 +838,163 @@ type DelegateParams = {
 	cwd?: string;
 };
 
+async function runManualTeammateDelegation(args: {
+	pi: ExtensionAPI;
+	ctx: Parameters<NonNullable<Parameters<ExtensionAPI["registerCommand"]>[1]["handler"]>>[1];
+	commandName: "team:delegate" | "team:handoff";
+	forcedContext?: TeammateContextMode;
+	rawArgs: string;
+}): Promise<void> {
+	const parsed = parseTeamCommandArgs(args.rawArgs);
+	const runtimeConfig = loadTeammatesConfig(args.ctx.cwd).config.teammates;
+	const discovery = discoverTeammates(args.ctx.cwd, {
+		loadProjectTeammates: runtimeConfig.loadProjectTeammates,
+	});
+	const teammateNames = discovery.teammates.map((teammate) => teammate.name);
+	let teammateName = parsed.agent;
+	if (!teammateName) {
+		teammateName = await args.ctx.ui.select("Select teammate", teammateNames);
+	}
+	if (!teammateName) return;
+
+	const teammate = discovery.teammates.find((candidate) => candidate.name === teammateName);
+	if (!teammate) {
+		args.ctx.ui.notify(`Unknown teammate: ${teammateName}`, "error");
+		return;
+	}
+
+	let task = parsed.task;
+	if (!task) {
+		const entered = await args.ctx.ui.input("Delegated task", "Describe the task to offload");
+		if (!entered?.trim()) return;
+		task = entered.trim();
+	}
+
+	const selectedContext = selectContextMode(args.forcedContext, teammate.contextMode);
+	if (parsed.improve) {
+		if (!args.ctx.model) {
+			args.ctx.ui.notify("No current session model available for --improve", "error");
+			return;
+		}
+		const currentThinkingLevel = args.pi.getThinkingLevel();
+		const improved = await improveDelegationTask({
+			rawTask: task,
+			branch: args.ctx.sessionManager.getBranch(),
+			model: args.ctx.model,
+			modelRegistry: args.ctx.modelRegistry,
+			contextLabel: selectedContext,
+			signal: args.ctx.signal,
+			thinkingLevel: currentThinkingLevel === "off" ? undefined : currentThinkingLevel,
+		});
+		const edited = await args.ctx.ui.editor("Review delegated task", improved);
+		if (!edited?.trim()) return;
+		task = edited.trim();
+	}
+
+	const lineages = getLatestTeammateSessionState(args.ctx.sessionManager.getEntries())?.lineage ?? parseTeammatesLineage(process.env[TEAMMATES_LINEAGE_ENV]);
+	const appendJobRecord = (record: TeammateJobRecord) => {
+		args.pi.appendEntry(TEAMMATE_JOB_CUSTOM_TYPE, record);
+	};
+	args.ctx.ui.setStatus("team-command", `Delegating to ${teammateName}...`);
+	const result = await runSingleTeammate({
+		defaultCwd: args.ctx.cwd,
+		runtimeConfig,
+		activeTools: args.pi.getActiveTools(),
+		teammates: discovery.teammates,
+		lineage: lineages,
+		parentBranch: args.ctx.sessionManager.getBranch(),
+		parentSessionId: args.ctx.sessionManager.getSessionId(),
+		parentSessionDir: args.ctx.sessionManager.getSessionDir(),
+		currentSessionFile: args.ctx.sessionManager.getSessionFile(),
+		currentModel: args.ctx.model,
+		modelRegistry: args.ctx.modelRegistry,
+		appendJobRecord,
+		contextOverride: selectedContext,
+		teammateName,
+		task,
+		cwd: undefined,
+		step: undefined,
+		signal: args.ctx.signal,
+		onUpdate: undefined,
+		makeDetails: (results) => ({
+			mode: "single",
+			projectTeammatesDir: discovery.projectTeammatesDir,
+			collapsedItemCount: runtimeConfig.collapsedItemCount,
+			results,
+		}),
+	});
+	args.ctx.ui.setStatus("team-command", undefined);
+
+	const transcript = buildManualDelegationTranscript({
+		commandName: args.commandName,
+		teammateName,
+		contextMode: result.contextMode ?? selectedContext,
+		task,
+		sessionId: result.sessionId,
+		resultText: getResultOutput(result),
+		status: result.status ?? (isFailedResult(result) ? "failed" : "completed"),
+	});
+	args.pi.sendMessage({
+		customType: "pi-teammates/manual-delegate",
+		content: transcript,
+		display: true,
+		details: {
+			command: args.commandName,
+			teammate: teammateName,
+			sessionId: result.sessionId,
+			status: result.status,
+		},
+	}, { triggerTurn: false });
+
+	const headline = result.sessionId ? `${teammateName} (${result.sessionId})` : teammateName;
+	args.ctx.ui.notify(
+		isFailedResult(result) ? `Delegation failed: ${headline}` : `Delegation finished: ${headline}`,
+		isFailedResult(result) ? "warning" : "info",
+	);
+}
+
+async function runNewSessionTransfer(args: {
+	ctx: Parameters<NonNullable<Parameters<ExtensionAPI["registerCommand"]>[1]["handler"]>>[1];
+	mode: "summary" | "handoff";
+	rawArgs: string;
+}): Promise<void> {
+	const task = defaultNewSessionTask(args.mode, args.rawArgs.trim());
+	const runtimeConfig = loadTeammatesConfig(args.ctx.cwd).config.teammates;
+	const packet = await generateDelegationContext({
+		mode: args.mode,
+		task,
+		branch: args.ctx.sessionManager.getBranch(),
+		contextConfig: runtimeConfig.context,
+		currentModel: args.ctx.model,
+		modelRegistry: args.ctx.modelRegistry,
+		signal: args.ctx.signal,
+	});
+	const prompt = buildDelegatedUserTask({ mode: args.mode, task, generatedContext: packet });
+	const edited = await args.ctx.ui.editor(`Review ${args.mode} session prompt`, prompt);
+	if (!edited?.trim()) return;
+
+	await args.ctx.newSession({
+		parentSession: args.ctx.sessionManager.getSessionFile(),
+		withSession: async (replacementCtx) => {
+			replacementCtx.ui.setEditorText(edited.trim());
+			replacementCtx.ui.notify(`${args.mode} prompt ready in the new session.`, "info");
+		},
+	});
+}
+
 export default function teammatesExtension(pi: ExtensionAPI) {
+	pi.on("session_start", async (_event, ctx) => {
+		for (const job of collectInterruptedTeammateJobs(ctx.sessionManager.getEntries())) {
+			pi.appendEntry(TEAMMATE_JOB_CUSTOM_TYPE, updateTeammateJobRecord(job, "interrupted"));
+		}
+	});
+
 	pi.on("before_agent_start", async (event, ctx) => {
 		const selectedTools = event.systemPromptOptions.selectedTools ?? [];
 		if (!selectedTools.includes("delegate")) return;
 
 		const runtimeConfig = loadTeammatesConfig(ctx.cwd).config.teammates;
-		const lineage = parseTeammatesLineage(process.env[TEAMMATES_LINEAGE_ENV]);
+		const lineage = getLatestTeammateSessionState(ctx.sessionManager.getEntries())?.lineage ?? parseTeammatesLineage(process.env[TEAMMATES_LINEAGE_ENV]);
 		const discovery = discoverTeammates(ctx.cwd, {
 			loadProjectTeammates: runtimeConfig.loadProjectTeammates,
 		});
@@ -804,6 +1006,111 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 		return {
 			systemPrompt: `${event.systemPrompt}\n\n${buildTeamPromptBlock(availableTeammates)}`,
 		};
+	});
+
+	pi.registerCommand("team:delegate", {
+		description: "Manually delegate a scoped task to a teammate while staying in the current session",
+		getArgumentCompletions: async (prefix) => {
+			const match = prefix.match(/(?:^|\s)--agent\s+(\S*)$/);
+			if (!match) return null;
+			const discovery = discoverTeammates(process.cwd(), {
+				loadProjectTeammates: loadTeammatesConfig(process.cwd()).config.teammates.loadProjectTeammates,
+			});
+			return discovery.teammates
+				.filter((teammate) => teammate.name.startsWith(match[1] ?? ""))
+				.map((teammate) => ({ value: teammate.name, label: teammate.name }));
+		},
+		handler: async (commandArgs, ctx) => {
+			await runManualTeammateDelegation({
+				pi,
+				ctx,
+				commandName: "team:delegate",
+				rawArgs: commandArgs,
+			});
+		},
+	});
+
+	pi.registerCommand("team:handoff", {
+		description: "Manually offload a scoped task to a teammate using handoff context while staying in the current session",
+		handler: async (commandArgs, ctx) => {
+			await runManualTeammateDelegation({
+				pi,
+				ctx,
+				commandName: "team:handoff",
+				forcedContext: "handoff",
+				rawArgs: commandArgs,
+			});
+		},
+	});
+
+	pi.registerCommand("summarize", {
+		description: "Create a new normal Pi session from a generated summary of the current one",
+		handler: async (commandArgs, ctx) => {
+			await runNewSessionTransfer({ ctx, mode: "summary", rawArgs: commandArgs });
+		},
+	});
+
+	pi.registerCommand("handoff", {
+		description: "Create a new normal Pi session from a generated handoff packet of the current one",
+		handler: async (commandArgs, ctx) => {
+			await runNewSessionTransfer({ ctx, mode: "handoff", rawArgs: commandArgs });
+		},
+	});
+
+	pi.registerCommand("team:status", {
+		description: "Show a live overlay of teammate activity for the current session",
+		handler: async (_args, ctx) => {
+			await showTeammateStatusOverlay({
+				ctx,
+				onResume: async (sessionId) => {
+					const runtimeConfig = loadTeammatesConfig(ctx.cwd).config.teammates;
+					const job = findTeammateJob(ctx.sessionManager.getEntries(), sessionId);
+					if (!job) {
+						ctx.ui.notify(`No teammate session found for ${sessionId}`, "warning");
+						return;
+					}
+					const result = await resumeTeammateSession({
+						runtimeConfig,
+						job,
+						signal: ctx.signal,
+						onUpdate: undefined,
+						makeDetails: (results) => ({
+							mode: "single",
+							projectTeammatesDir: null,
+							collapsedItemCount: runtimeConfig.collapsedItemCount,
+							results,
+						}),
+						modelRegistry: ctx.modelRegistry,
+						appendJobRecord: (record) => pi.appendEntry(TEAMMATE_JOB_CUSTOM_TYPE, record),
+					});
+					pi.sendMessage({
+						customType: "pi-teammates/manual-delegate",
+						content: buildManualDelegationTranscript({
+							commandName: "team:status",
+							teammateName: job.teammateName,
+							contextMode: job.contextMode,
+							task: job.task,
+							sessionId: result.sessionId,
+							resultText: getResultOutput(result),
+							status: result.status ?? (isFailedResult(result) ? "failed" : "completed"),
+						}),
+						display: true,
+						details: { command: "team:status", teammate: job.teammateName, sessionId },
+					}, { triggerTurn: false });
+					ctx.ui.notify(
+						isFailedResult(result) ? `Resume failed: ${sessionId}` : `Resume finished: ${sessionId}`,
+						isFailedResult(result) ? "warning" : "info",
+					);
+				},
+			});
+		},
+	});
+
+	pi.registerCommand("team:manage", {
+		description: "Open an interactive teammate manager for creating, editing, duplicating, and deleting teammate files",
+		handler: async (_args, ctx) => {
+			await runTeammateManager(ctx);
+		},
 	});
 
 	pi.registerTool({
@@ -832,7 +1139,7 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const runtimeConfig = loadTeammatesConfig(ctx.cwd).config.teammates;
-			const lineage = parseTeammatesLineage(process.env[TEAMMATES_LINEAGE_ENV]);
+			const lineage = getLatestTeammateSessionState(ctx.sessionManager.getEntries())?.lineage ?? parseTeammatesLineage(process.env[TEAMMATES_LINEAGE_ENV]);
 			const currentBranch = ctx.sessionManager.getBranch();
 			const currentEntries = ctx.sessionManager.getEntries();
 			const currentSessionId = ctx.sessionManager.getSessionId();
