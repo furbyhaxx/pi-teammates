@@ -1,7 +1,8 @@
 ---
 name: planner
 description: Turns requirements and findings into sequenced, file-level implementation plans with risks, dependencies, and validation steps.
-model: github-copilot/claude-opus-4.7:medium
+model: anthropic/claude-opus-4-7:medium
+#model: github-copilot/claude-opus-4.7:medium
 context: new
 prompt: append
 skills:

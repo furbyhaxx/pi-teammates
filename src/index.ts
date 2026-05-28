@@ -88,6 +88,14 @@ function formatUsageStats(
 	return parts.join(" ");
 }
 
+export function formatResolvedModelLabel(
+	model: { provider: string; id: string } | undefined,
+	thinkingLevel: ThinkingLevel | "off" | undefined,
+): string | undefined {
+	if (!model) return undefined;
+	return thinkingLevel ? `${model.provider}/${model.id}:${thinkingLevel}` : `${model.provider}/${model.id}`;
+}
+
 function formatToolCall(
 	toolName: string,
 	args: Record<string, unknown>,
@@ -229,6 +237,25 @@ function getResultOutput(result: SingleResult): string {
 		return result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)";
 	}
 	return getFinalOutput(result.messages) || "(no output)";
+}
+
+function formatResultMetaLines(result: Pick<SingleResult, "sessionId" | "model">): string[] {
+	const lines: string[] = [];
+	if (result.sessionId) lines.push(`Session: ${result.sessionId}`);
+	if (result.model) lines.push(`Model: ${result.model}`);
+	return lines;
+}
+
+function prependResultMeta(result: Pick<SingleResult, "sessionId" | "model">, body: string): string {
+	const meta = formatResultMetaLines(result);
+	if (meta.length === 0) return body;
+	return body.trim().length > 0 ? `${meta.join("\n")}\n\n${body}` : meta.join("\n");
+}
+
+function formatChainResultLabel(result: Pick<SingleResult, "teammate" | "sessionId" | "model">): string {
+	let label = `${result.teammate}: ${result.sessionId ?? "unknown"}`;
+	if (result.model) label += ` [${result.model}]`;
+	return label;
 }
 
 function truncateParallelOutput(output: string, maxBytes: number): string {
@@ -556,6 +583,16 @@ async function runSingleTeammate(args: {
 		});
 
 		const childSession = sessionHandle.session;
+		const updateEffectiveModel = () => {
+			const resolvedModel = formatResolvedModelLabel(childSession.model, childSession.thinkingLevel);
+			if (!resolvedModel) return;
+			currentResult.model = resolvedModel;
+			if (jobRecord && jobRecord.model !== resolvedModel) {
+				jobRecord = updateTeammateJobRecord(jobRecord, jobRecord.status, { model: resolvedModel });
+				args.appendJobRecord(jobRecord);
+			}
+		};
+		updateEffectiveModel();
 		await childSession.bindExtensions({
 			onError: (error) => {
 				currentResult.stderr += `Extension error (${error.extensionPath}): ${error.error}\n`;
@@ -572,9 +609,7 @@ async function runSingleTeammate(args: {
 			currentResult.usage = outcome.usage;
 			currentResult.stopReason = outcome.stopReason;
 			currentResult.errorMessage = outcome.errorMessage;
-			currentResult.model = childSession.model
-				? `${childSession.model.provider}/${childSession.model.id}`
-				: currentResult.model;
+			updateEffectiveModel();
 			emitUpdate();
 		};
 
@@ -672,6 +707,7 @@ async function resumeTeammateSession(args: {
 	let sessionHandle: Awaited<ReturnType<typeof createAgentSession>> | undefined;
 	let unsubscribe: (() => void) | undefined;
 	let abortCleanup: (() => void) | undefined;
+	let currentJobRecord = args.job;
 
 	try {
 		const sessionDir = path.dirname(args.job.childSessionPath);
@@ -717,6 +753,17 @@ async function resumeTeammateSession(args: {
 		});
 
 		const childSession = sessionHandle.session;
+		let currentJobRecord = args.job;
+		const updateEffectiveModel = () => {
+			const resolvedModel = formatResolvedModelLabel(childSession.model, childSession.thinkingLevel);
+			if (!resolvedModel) return;
+			result.model = resolvedModel;
+			if (currentJobRecord.model !== resolvedModel) {
+				currentJobRecord = updateTeammateJobRecord(currentJobRecord, currentJobRecord.status, { model: resolvedModel });
+				args.appendJobRecord(currentJobRecord);
+			}
+		};
+		updateEffectiveModel();
 		await childSession.bindExtensions({
 			onError: (error) => {
 				result.stderr += `Extension error (${error.extensionPath}): ${error.error}\n`;
@@ -733,7 +780,7 @@ async function resumeTeammateSession(args: {
 			result.usage = outcome.usage;
 			result.stopReason = outcome.stopReason;
 			result.errorMessage = outcome.errorMessage;
-			result.model = childSession.model ? `${childSession.model.provider}/${childSession.model.id}` : result.model;
+			updateEffectiveModel();
 			emitUpdate();
 		};
 
@@ -759,7 +806,8 @@ async function resumeTeammateSession(args: {
 			abortCleanup = () => args.signal?.removeEventListener("abort", abortChild);
 		}
 
-		args.appendJobRecord(updateTeammateJobRecord(args.job, "running"));
+		currentJobRecord = updateTeammateJobRecord(currentJobRecord, "running");
+		args.appendJobRecord(currentJobRecord);
 		await childSession.agent.continue();
 		await childSession.agent.waitForIdle();
 		syncSnapshot();
@@ -770,13 +818,14 @@ async function resumeTeammateSession(args: {
 		result.stopReason = outcome.stopReason;
 		result.errorMessage = outcome.errorMessage;
 		result.status = result.exitCode === 0 ? "completed" : result.stopReason === "aborted" ? "aborted" : "failed";
-		args.appendJobRecord(updateTeammateJobRecord(args.job, result.status as any));
+		currentJobRecord = updateTeammateJobRecord(currentJobRecord, result.status as any);
+		args.appendJobRecord(currentJobRecord);
 		return result;
 	} catch (error) {
 		result.exitCode = 1;
 		result.status = "failed";
 		result.stderr += `${error instanceof Error ? error.message : String(error)}`;
-		args.appendJobRecord(updateTeammateJobRecord(args.job, "failed"));
+		args.appendJobRecord(updateTeammateJobRecord(currentJobRecord, "failed"));
 		return result;
 	} finally {
 		abortCleanup?.();
@@ -931,6 +980,7 @@ async function runManualTeammateDelegation(args: {
 		contextMode: result.contextMode ?? selectedContext,
 		task,
 		sessionId: result.sessionId,
+		model: result.model,
 		resultText: getResultOutput(result),
 		status: result.status ?? (isFailedResult(result) ? "failed" : "completed"),
 	});
@@ -1091,6 +1141,7 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 							contextMode: job.contextMode,
 							task: job.task,
 							sessionId: result.sessionId,
+							model: result.model,
 							resultText: getResultOutput(result),
 							status: result.status ?? (isFailedResult(result) ? "failed" : "completed"),
 						}),
@@ -1209,16 +1260,21 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 					appendJobRecord,
 				});
 
-				const sessionNote = result.sessionId ? `Session: ${result.sessionId}\n` : "";
 				if (isFailedResult(result)) {
 					return {
-						content: [{ type: "text", text: `${sessionNote}Resume failed: ${getResultOutput(result)}` }],
+						content: [{
+							type: "text",
+							text: prependResultMeta(result, `Resume failed: ${getResultOutput(result)}`),
+						}],
 						details: makeDetails("single")([result]),
 					};
 				}
 
 				return {
-					content: [{ type: "text", text: `${sessionNote}${getFinalOutput(result.messages) || "(no output)"}` }],
+					content: [{
+						type: "text",
+						text: prependResultMeta(result, getFinalOutput(result.messages) || "(no output)"),
+					}],
 					details: makeDetails("single")([result]),
 				};
 			}
@@ -1282,9 +1338,14 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 
 					if (isFailedResult(result)) {
 						const errorMessage = getResultOutput(result);
-						const sessionNote = result.sessionId ? ` session ${result.sessionId}` : "";
+						const metaNote = [result.sessionId ? `session ${result.sessionId}` : "", result.model ? `model ${result.model}` : ""]
+							.filter(Boolean)
+							.join(", ");
 						return {
-							content: [{ type: "text", text: `Chain stopped at step ${i + 1} (${step.teammate}${sessionNote}): ${errorMessage}` }],
+							content: [{
+								type: "text",
+								text: `Chain stopped at step ${i + 1} (${step.teammate}${metaNote ? `, ${metaNote}` : ""}): ${errorMessage}`,
+							}],
 							details: makeDetails("chain")(results),
 						};
 					}
@@ -1294,7 +1355,7 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 				return {
 					content: [{
 						type: "text",
-						text: `${results.map((result) => `${result.teammate}: ${result.sessionId ?? "unknown"}`).join("\n")}\n\n${getFinalOutput(results[results.length - 1].messages) || "(no output)"}`,
+						text: `${results.map((result) => formatChainResultLabel(result)).join("\n")}\n\n${getFinalOutput(results[results.length - 1].messages) || "(no output)"}`,
 					}],
 					details: makeDetails("chain")(results),
 				};
@@ -1378,7 +1439,11 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 					const status = isFailedResult(result)
 						? `failed${result.stopReason && result.stopReason !== "end" ? ` (${result.stopReason})` : ""}`
 						: "completed";
-					return `### [${result.teammate}] ${status}\n\nSession: ${result.sessionId ?? "unknown"}\n\n${output}`;
+					const meta = [
+						`Session: ${result.sessionId ?? "unknown"}`,
+						result.model ? `Model: ${result.model}` : "",
+					].filter(Boolean).join("\n");
+					return `### [${result.teammate}] ${status}\n\n${meta}\n\n${output}`;
 				});
 				return {
 					content: [
@@ -1416,15 +1481,19 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 				});
 				if (isFailedResult(result)) {
 					const errorMessage = getResultOutput(result);
-					const sessionNote = result.sessionId ? `Session: ${result.sessionId}\n` : "";
 					return {
-						content: [{ type: "text", text: `${sessionNote}Teammate ${result.stopReason || "failed"}: ${errorMessage}` }],
+						content: [{
+							type: "text",
+							text: prependResultMeta(result, `Teammate ${result.stopReason || "failed"}: ${errorMessage}`),
+						}],
 						details: makeDetails("single")([result]),
 					};
 				}
-				const sessionNote = result.sessionId ? `Session: ${result.sessionId}\n` : "";
 				return {
-					content: [{ type: "text", text: `${sessionNote}${getFinalOutput(result.messages) || "(no output)"}` }],
+					content: [{
+						type: "text",
+						text: prependResultMeta(result, getFinalOutput(result.messages) || "(no output)"),
+					}],
 					details: makeDetails("single")([result]),
 				};
 			}

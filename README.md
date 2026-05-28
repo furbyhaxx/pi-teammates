@@ -317,7 +317,7 @@ Optional `cwd` is supported in single, parallel task items, and chain step items
 /team:manage
 ```
 
-- `/team:status` opens a live overlay showing teammate job state, session ids, context mode, and resumable interrupted runs.
+- `/team:status` opens a live overlay showing teammate job state, session ids, effective model/thinking, context mode, and resumable interrupted runs.
 - `/team:manage` opens an interactive teammate manager for creating, editing, duplicating, and deleting teammate files.
 
 ## Internal teammate sessions

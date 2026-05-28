@@ -69,9 +69,14 @@ export function createTeammateJobRecord(args: {
 	};
 }
 
-export function updateTeammateJobRecord(record: TeammateJobRecord, status: TeammateJobStatus): TeammateJobRecord {
+export function updateTeammateJobRecord(
+	record: TeammateJobRecord,
+	status: TeammateJobStatus,
+	overrides: Partial<Pick<TeammateJobRecord, "model">> = {},
+): TeammateJobRecord {
 	return {
 		...record,
+		...overrides,
 		status,
 		updatedAt: new Date().toISOString(),
 	};

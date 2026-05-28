@@ -4,6 +4,7 @@ import {
 	canDelegateToTeammate,
 	resolveTeammateToolNames,
 } from "../src/delegation-policy.ts";
+import { formatResolvedModelLabel } from "../src/index.ts";
 
 assert.deepEqual(
 	resolveTeammateToolNames({
@@ -60,6 +61,16 @@ assert.equal(
 	}),
 	false,
 );
+
+assert.equal(
+	formatResolvedModelLabel({ provider: "deepseek", id: "deepseek-v4-flash" }, "xhigh"),
+	"deepseek/deepseek-v4-flash:xhigh",
+);
+assert.equal(
+	formatResolvedModelLabel({ provider: "openai-codex", id: "gpt-5.5" }, "off"),
+	"openai-codex/gpt-5.5:off",
+);
+assert.equal(formatResolvedModelLabel(undefined, "high"), undefined);
 
 const prompt = buildTeamPromptBlock([
 	{

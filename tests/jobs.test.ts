@@ -29,7 +29,9 @@ const running = createTeammateJobRecord({
 
 assert.deepEqual(running.skills, ["systematic-debugging", "test-driven-development"]);
 
-const completed = updateTeammateJobRecord(running, "completed");
+const completed = updateTeammateJobRecord(running, "completed", {
+	model: "deepseek/deepseek-v4-flash:xhigh",
+});
 
 const jobs = collectLatestTeammateJobs([
 	{
@@ -51,6 +53,7 @@ const jobs = collectLatestTeammateJobs([
 ]);
 
 assert.equal(jobs.get("child-1")?.status, "completed");
+assert.equal(jobs.get("child-1")?.model, "deepseek/deepseek-v4-flash:xhigh");
 assert.deepEqual(jobs.get("child-1")?.skills, ["systematic-debugging", "test-driven-development"]);
 
 const interrupted = collectInterruptedTeammateJobs([

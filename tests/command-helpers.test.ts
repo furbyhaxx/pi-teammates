@@ -67,11 +67,13 @@ const transcript = buildManualDelegationTranscript({
 	contextMode: "summary",
 	task: "Inspect src/index.ts",
 	sessionId: "child-123",
+	model: "deepseek/deepseek-v4-flash:xhigh",
 	resultText: "Found the auth flow",
 	status: "completed",
 });
 assert.match(transcript, /manual_teammate_invocation/);
 assert.match(transcript, /child-123/);
+assert.match(transcript, /deepseek\/deepseek-v4-flash:xhigh/);
 assert.match(transcript, /Found the auth flow/);
 
 console.log("command helper tests passed");

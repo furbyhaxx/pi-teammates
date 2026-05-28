@@ -150,6 +150,7 @@ export function buildManualDelegationTranscript(args: {
 	contextMode: string;
 	task: string;
 	sessionId?: string;
+	model?: string;
 	resultText: string;
 	status: string;
 }): string {
@@ -157,6 +158,7 @@ export function buildManualDelegationTranscript(args: {
 		`<manual_teammate_invocation command="${escapeXml(args.commandName)}" teammate="${escapeXml(args.teammateName)}" context="${escapeXml(args.contextMode)}" status="${escapeXml(args.status)}">`,
 		`<task>${escapeXml(args.task)}</task>`,
 		args.sessionId ? `<session>${escapeXml(args.sessionId)}</session>` : "",
+		args.model ? `<model>${escapeXml(args.model)}</model>` : "",
 		"<result>",
 		escapeXml(args.resultText),
 		"</result>",
