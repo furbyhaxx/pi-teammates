@@ -1,16 +1,18 @@
-import { spawn } from "node:child_process";
-import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import type { Message, Model } from "@earendil-works/pi-ai";
+import type { AgentMessage, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { Message, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
 import {
+	createAgentSession,
+	DefaultResourceLoader,
 	type ExtensionAPI,
+	getAgentDir,
 	getMarkdownTheme,
 	type ModelRegistry,
+	SessionManager,
 	type SessionEntry,
-	withFileMutationQueue,
+	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -18,6 +20,7 @@ import { loadTeammatesConfig, type TeammatesSettingsConfig } from "./config.ts";
 import {
 	buildDelegatedUserTask,
 	generateDelegationContext,
+	parseContextModelRef,
 	selectContextMode,
 	TEAMMATE_CONTEXT_MODES,
 	type TeammateContextMode,
@@ -27,12 +30,14 @@ import {
 	canDelegateToTeammate,
 	resolveTeammateToolNames,
 } from "./delegation-policy.ts";
+import { parseTeammatesLineage, TEAMMATES_LINEAGE_ENV } from "./delegate-process.ts";
 import {
-	buildDelegateProcessPlan,
-	copySessionFileToTemp,
-	parseTeammatesLineage,
-	TEAMMATES_LINEAGE_ENV,
-} from "./delegate-process.ts";
+	collectLatestTeammateJobs,
+	createTeammateJobRecord,
+	TEAMMATE_JOB_CUSTOM_TYPE,
+	type TeammateJobRecord,
+	updateTeammateJobRecord,
+} from "./job-registry.ts";
 import { discoverTeammates, type TeammateConfig } from "./teammates.ts";
 
 function formatTokens(count: number): string {
@@ -166,6 +171,11 @@ interface SingleResult {
 	teammate: string;
 	teammateSource: "user" | "project" | "unknown";
 	task: string;
+	contextMode?: TeammateContextMode;
+	jobId?: string;
+	sessionId?: string;
+	sessionPath?: string;
+	status?: string;
 	exitCode: number;
 	messages: Message[];
 	stderr: string;
@@ -252,30 +262,64 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
 	return results;
 }
 
-async function writePromptToTempFile(teammateName: string, prompt: string): Promise<{ dir: string; filePath: string }> {
-	const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-teammates-"));
-	const safeName = teammateName.replace(/[^\w.-]+/g, "_");
-	const filePath = path.join(tmpDir, `prompt-${safeName}.md`);
-	await withFileMutationQueue(filePath, async () => {
-		await fs.promises.writeFile(filePath, prompt, { encoding: "utf-8", mode: 0o600 });
-	});
-	return { dir: tmpDir, filePath };
+function buildChildSessionDir(parentSessionDir: string, parentSessionId: string): string {
+	return path.join(parentSessionDir, parentSessionId);
 }
 
-function getPiInvocation(args: string[]): { command: string; args: string[] } {
-	const currentScript = process.argv[1];
-	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
-	if (currentScript && !isBunVirtualScript && fs.existsSync(currentScript)) {
-		return { command: process.execPath, args: [currentScript, ...args] };
+function createJobId(): string {
+	return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getTrackableMessages(messages: AgentMessage[]): Message[] {
+	return messages.filter((message) => message.role === "assistant" || message.role === "toolResult") as Message[];
+}
+
+function resolveTeammateModel(args: {
+	teammateModel: string | undefined;
+	modelRegistry: ModelRegistry;
+	fallbackModel: Model<any> | undefined;
+}): { model: Model<any> | undefined; thinkingLevel: ThinkingLevel | undefined } {
+	if (!args.teammateModel || args.teammateModel.trim() === "") {
+		return { model: args.fallbackModel, thinkingLevel: undefined };
+	}
+	const parsed = parseContextModelRef(args.teammateModel, args.fallbackModel?.provider);
+	if (!parsed) {
+		throw new Error(`Invalid teammate model reference: ${args.teammateModel}`);
+	}
+	const model = args.modelRegistry.find(parsed.provider, parsed.id);
+	if (!model) {
+		throw new Error(`Configured teammate model not found: ${parsed.provider}/${parsed.id}`);
+	}
+	return { model, thinkingLevel: parsed.thinking };
+}
+
+function extractRunOutcome(messages: Message[]): { exitCode: number; stopReason?: string; errorMessage?: string; usage: UsageStats } {
+	const usage: UsageStats = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
+	let stopReason: string | undefined;
+	let errorMessage: string | undefined;
+
+	for (const message of messages) {
+		if (message.role !== "assistant") continue;
+		usage.turns++;
+		const msgUsage = message.usage;
+		if (msgUsage) {
+			usage.input += msgUsage.input || 0;
+			usage.output += msgUsage.output || 0;
+			usage.cacheRead += msgUsage.cacheRead || 0;
+			usage.cacheWrite += msgUsage.cacheWrite || 0;
+			usage.cost += msgUsage.cost?.total || 0;
+			usage.contextTokens = msgUsage.totalTokens || usage.contextTokens;
+		}
+		stopReason = message.stopReason ?? stopReason;
+		errorMessage = message.errorMessage ?? errorMessage;
 	}
 
-	const execName = path.basename(process.execPath).toLowerCase();
-	const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
-	if (!isGenericRuntime) {
-		return { command: process.execPath, args };
-	}
-
-	return { command: "pi", args };
+	return {
+		exitCode: stopReason === "error" || stopReason === "aborted" ? 1 : 0,
+		stopReason,
+		errorMessage,
+		usage,
+	};
 }
 
 type OnUpdateCallback = (partial: AgentToolResult<DelegateDetails>) => void;
@@ -287,9 +331,12 @@ async function runSingleTeammate(args: {
 	teammates: TeammateConfig[];
 	lineage: string[];
 	parentBranch: SessionEntry[];
+	parentSessionId: string;
+	parentSessionDir: string;
 	currentSessionFile: string | undefined;
 	currentModel: Model<any> | undefined;
 	modelRegistry: ModelRegistry;
+	appendJobRecord: (record: TeammateJobRecord) => void;
 	contextOverride?: TeammateContextMode;
 	teammateName: string;
 	task: string;
@@ -327,6 +374,7 @@ async function runSingleTeammate(args: {
 		};
 	}
 
+	const childCwd = args.cwd ?? args.defaultCwd;
 	const resolvedTools = resolveTeammateToolNames({
 		activeTools: args.activeTools,
 		toolToggles: teammate.tools,
@@ -335,16 +383,11 @@ async function runSingleTeammate(args: {
 	});
 	const disableAllTools = teammate.tools !== undefined && resolvedTools.length === 0;
 	const contextMode = selectContextMode(args.contextOverride, teammate.contextMode);
-
-	let tmpPromptDir: string | null = null;
-	let tmpPromptPath: string | null = null;
-	let tmpSessionDir: string | null = null;
-	let tmpSessionPath: string | null = null;
-
 	const currentResult: SingleResult = {
 		teammate: teammate.name,
 		teammateSource: teammate.source,
 		task: args.task,
+		contextMode,
 		exitCode: 0,
 		messages: [],
 		stderr: "",
@@ -354,200 +397,344 @@ async function runSingleTeammate(args: {
 	};
 
 	const emitUpdate = () => {
-		if (args.onUpdate) {
-			args.onUpdate({
-				content: [{ type: "text", text: getFinalOutput(currentResult.messages) || "(running...)" }],
-				details: args.makeDetails([currentResult]),
-			});
-		}
+		if (!args.onUpdate) return;
+		args.onUpdate({
+			content: [{ type: "text", text: getFinalOutput(currentResult.messages) || "(running...)" }],
+			details: args.makeDetails([currentResult]),
+		});
 	};
 
+	let sessionHandle: Awaited<ReturnType<typeof createAgentSession>> | undefined;
+	let unsubscribe: (() => void) | undefined;
+	let jobRecord: TeammateJobRecord | undefined;
+	let abortCleanup: (() => void) | undefined;
+
 	try {
-		if (teammate.systemPrompt.trim()) {
-			const tmp = await writePromptToTempFile(teammate.name, teammate.systemPrompt);
-			tmpPromptDir = tmp.dir;
-			tmpPromptPath = tmp.filePath;
+		const agentDir = getAgentDir();
+		const childSessionDir = buildChildSessionDir(args.parentSessionDir, args.parentSessionId);
+		const childSessionManager =
+			contextMode === "inherit"
+				? args.currentSessionFile
+					? SessionManager.forkFrom(args.currentSessionFile, childCwd, childSessionDir, {
+						parentSession: args.currentSessionFile,
+					})
+					: undefined
+				: SessionManager.create(childCwd, childSessionDir, { parentSession: args.currentSessionFile });
+
+		if (!childSessionManager) {
+			return {
+				...currentResult,
+				exitCode: 1,
+				stderr:
+					"Inherited teammate context requires the invoking session to be persisted on disk. This session has no session file, so use context=new, summary, or handoff instead.",
+			};
 		}
 
-		let plan: ReturnType<typeof buildDelegateProcessPlan>;
-		try {
-			const generatedContext =
-				contextMode === "summary" || contextMode === "handoff"
-					? await generateDelegationContext({
-						mode: contextMode,
-						task: args.task,
-						branch: args.parentBranch,
-						contextConfig: args.runtimeConfig.context,
-						currentModel: args.currentModel,
-						modelRegistry: args.modelRegistry,
-						signal: args.signal,
-					})
-					: undefined;
+		const childSessionId = childSessionManager.getSessionId();
+		const childSessionPath = childSessionManager.getSessionFile();
+		if (!childSessionPath) {
+			return {
+				...currentResult,
+				exitCode: 1,
+				stderr: "Failed to create persisted teammate session file.",
+			};
+		}
 
-			if (contextMode === "inherit") {
-				if (!args.currentSessionFile) {
-					return {
-						teammate: teammate.name,
-						teammateSource: teammate.source,
-						task: args.task,
-						exitCode: 1,
-						messages: [],
-						stderr: "Inherited teammate context requires the invoking session to be persisted on disk. This session has no session file, so use context=new, summary, or handoff instead.",
-						usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
-						step: args.step,
-					};
-				}
+		currentResult.sessionId = childSessionId;
+		currentResult.sessionPath = childSessionPath;
+		currentResult.status = "running";
+		currentResult.jobId = createJobId();
 
-				const tmp = await copySessionFileToTemp(args.currentSessionFile);
-				tmpSessionDir = tmp.dir;
-				tmpSessionPath = tmp.filePath;
-			}
+		jobRecord = createTeammateJobRecord({
+			jobId: currentResult.jobId,
+			parentSessionId: args.parentSessionId,
+			parentSessionFile: args.currentSessionFile,
+			childSessionId,
+			childSessionPath,
+			teammateName: teammate.name,
+			task: args.task,
+			contextMode,
+			cwd: childCwd,
+			toolNames: resolvedTools,
+			disableAllTools,
+			promptMode: teammate.promptMode,
+			systemPrompt: teammate.systemPrompt,
+			status: "running",
+			model: teammate.model,
+		});
+		args.appendJobRecord(jobRecord);
 
-			plan = buildDelegateProcessPlan({
-				defaultCwd: args.defaultCwd,
-				task: buildDelegatedUserTask({
+		const generatedContext =
+			contextMode === "summary" || contextMode === "handoff"
+				? await generateDelegationContext({
 					mode: contextMode,
 					task: args.task,
-					generatedContext,
-				}),
-				cwd: args.cwd,
-				sessionFilePath: tmpSessionPath ?? undefined,
-				promptFilePath: tmpPromptPath ?? undefined,
-				promptMode: teammate.promptMode,
-				model: teammate.model,
-				tools: resolvedTools,
-				disableAllTools,
-				teammateName: teammate.name,
-				lineage: args.lineage,
-				env: process.env,
-			});
-		} catch (error) {
-			return {
-				teammate: teammate.name,
-				teammateSource: teammate.source,
-				task: args.task,
-				exitCode: 1,
-				messages: [],
-				stderr: error instanceof Error ? error.message : String(error),
-				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
-				step: args.step,
-			};
-		}
+					branch: args.parentBranch,
+					contextConfig: args.runtimeConfig.context,
+					currentModel: args.currentModel,
+					modelRegistry: args.modelRegistry,
+					signal: args.signal,
+				})
+				: undefined;
 
-		let wasAborted = false;
-		const exitCode = await new Promise<number>((resolve) => {
-			const invocation = getPiInvocation(plan.args);
-			const proc = spawn(invocation.command, invocation.args, {
-				cwd: plan.cwd,
-				env: plan.env,
-				shell: false,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-			let buffer = "";
+		const delegatedTask = buildDelegatedUserTask({
+			mode: contextMode,
+			task: args.task,
+			generatedContext,
+		});
 
-			const processLine = (line: string) => {
-				if (!line.trim()) return;
-				let event: any;
-				try {
-					event = JSON.parse(line);
-				} catch {
-					return;
-				}
+		const { model: childModel, thinkingLevel } = resolveTeammateModel({
+			teammateModel: teammate.model,
+			modelRegistry: args.modelRegistry,
+			fallbackModel: args.currentModel,
+		});
 
-				if (event.type === "message_end" && event.message) {
-					const message = event.message as Message;
-					currentResult.messages.push(message);
+		const childSettingsManager = SettingsManager.create(childCwd, agentDir);
+		const childResourceLoader = new DefaultResourceLoader({
+			cwd: childCwd,
+			agentDir,
+			settingsManager: childSettingsManager,
+			systemPromptOverride:
+				teammate.promptMode === "replace" ? () => teammate.systemPrompt : undefined,
+			appendSystemPromptOverride:
+				teammate.promptMode === "append" && teammate.systemPrompt.trim().length > 0
+					? (base) => [...base, teammate.systemPrompt]
+					: undefined,
+		});
+		await childResourceLoader.reload();
 
-					if (message.role === "assistant") {
-						currentResult.usage.turns++;
-						const usage = message.usage;
-						if (usage) {
-							currentResult.usage.input += usage.input || 0;
-							currentResult.usage.output += usage.output || 0;
-							currentResult.usage.cacheRead += usage.cacheRead || 0;
-							currentResult.usage.cacheWrite += usage.cacheWrite || 0;
-							currentResult.usage.cost += usage.cost?.total || 0;
-							currentResult.usage.contextTokens = usage.totalTokens || 0;
-						}
-						currentResult.model = message.model ?? currentResult.model;
-						if (message.stopReason) currentResult.stopReason = message.stopReason;
-						if (message.errorMessage) currentResult.errorMessage = message.errorMessage;
-					}
-					emitUpdate();
-				}
+		sessionHandle = await createAgentSession({
+			cwd: childCwd,
+			agentDir,
+			modelRegistry: args.modelRegistry,
+			model: childModel,
+			thinkingLevel,
+			sessionManager: childSessionManager,
+			settingsManager: childSettingsManager,
+			resourceLoader: childResourceLoader,
+			tools: disableAllTools ? undefined : resolvedTools,
+			noTools: disableAllTools ? "all" : undefined,
+		});
 
-				if (event.type === "tool_result_end" && event.message) {
-					currentResult.messages.push(event.message as Message);
-					emitUpdate();
-				}
-			};
+		const childSession = sessionHandle.session;
+		await childSession.bindExtensions({
+			onError: (error) => {
+				currentResult.stderr += `Extension error (${error.extensionPath}): ${error.error}\n`;
+			},
+		});
 
-			proc.stdout.on("data", (data) => {
-				buffer += data.toString();
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-				for (const line of lines) processLine(line);
-			});
+		const syncSnapshot = () => {
+			const snapshot = [...childSession.state.messages];
+			if (childSession.state.streamingMessage?.role === "assistant") {
+				snapshot.push(childSession.state.streamingMessage);
+			}
+			currentResult.messages = getTrackableMessages(snapshot);
+			const outcome = extractRunOutcome(currentResult.messages);
+			currentResult.usage = outcome.usage;
+			currentResult.stopReason = outcome.stopReason;
+			currentResult.errorMessage = outcome.errorMessage;
+			currentResult.model = childSession.model
+				? `${childSession.model.provider}/${childSession.model.id}`
+				: currentResult.model;
+			emitUpdate();
+		};
 
-			proc.stderr.on("data", (data) => {
-				currentResult.stderr += data.toString();
-			});
-
-			proc.on("close", (code) => {
-				if (buffer.trim()) processLine(buffer);
-				resolve(code ?? 0);
-			});
-
-			proc.on("error", () => {
-				resolve(1);
-			});
-
-			if (args.signal) {
-				const killProc = () => {
-					wasAborted = true;
-					proc.kill("SIGTERM");
-					setTimeout(() => {
-						if (!proc.killed) proc.kill("SIGKILL");
-					}, 5000);
-				};
-				if (args.signal.aborted) killProc();
-				else args.signal.addEventListener("abort", killProc, { once: true });
+		unsubscribe = childSession.subscribe((event) => {
+			if (
+				event.type === "message_start" ||
+				event.type === "message_update" ||
+				event.type === "message_end" ||
+				event.type === "tool_execution_start" ||
+				event.type === "tool_execution_update" ||
+				event.type === "tool_execution_end"
+			) {
+				syncSnapshot();
 			}
 		});
 
-		currentResult.exitCode = exitCode;
-		if (wasAborted) throw new Error("Teammate was aborted");
+		if (args.signal) {
+			const abortChild = () => {
+				void childSession.abort();
+			};
+			if (args.signal.aborted) abortChild();
+			else args.signal.addEventListener("abort", abortChild, { once: true });
+			abortCleanup = () => args.signal?.removeEventListener("abort", abortChild);
+		}
+
+		await childSession.prompt(delegatedTask);
+		await childSession.agent.waitForIdle();
+		syncSnapshot();
+
+		const outcome = extractRunOutcome(currentResult.messages);
+		currentResult.exitCode = outcome.exitCode;
+		currentResult.usage = outcome.usage;
+		currentResult.stopReason = outcome.stopReason;
+		currentResult.errorMessage = outcome.errorMessage;
+		currentResult.status =
+			currentResult.exitCode === 0
+				? "completed"
+				: currentResult.stopReason === "aborted"
+					? "aborted"
+					: "failed";
+
+		if (jobRecord) {
+			args.appendJobRecord(updateTeammateJobRecord(jobRecord, currentResult.status as any));
+		}
+
+		return currentResult;
+	} catch (error) {
+		currentResult.exitCode = 1;
+		currentResult.status = currentResult.status === "running" ? "failed" : currentResult.status;
+		currentResult.stderr += `${error instanceof Error ? error.message : String(error)}`;
+		if (jobRecord) {
+			args.appendJobRecord(updateTeammateJobRecord(jobRecord, "failed"));
+		}
 		return currentResult;
 	} finally {
-		if (tmpPromptPath) {
-			try {
-				fs.unlinkSync(tmpPromptPath);
-			} catch {
-				// ignore cleanup errors
-			}
-		}
-		if (tmpPromptDir) {
-			try {
-				fs.rmdirSync(tmpPromptDir);
-			} catch {
-				// ignore cleanup errors
-			}
-		}
-		if (tmpSessionPath) {
-			try {
-				fs.unlinkSync(tmpSessionPath);
-			} catch {
-				// ignore cleanup errors
-			}
-		}
-		if (tmpSessionDir) {
-			try {
-				fs.rmdirSync(tmpSessionDir);
-			} catch {
-				// ignore cleanup errors
-			}
-		}
+		abortCleanup?.();
+		unsubscribe?.();
+		sessionHandle?.session.dispose();
 	}
+}
+
+async function resumeTeammateSession(args: {
+	runtimeConfig: TeammatesSettingsConfig;
+	job: TeammateJobRecord;
+	signal: AbortSignal | undefined;
+	onUpdate: OnUpdateCallback | undefined;
+	makeDetails: (results: SingleResult[]) => DelegateDetails;
+	modelRegistry: ModelRegistry;
+	appendJobRecord: (record: TeammateJobRecord) => void;
+}): Promise<SingleResult> {
+	const result: SingleResult = {
+		teammate: args.job.teammateName,
+		teammateSource: "unknown",
+		task: args.job.task,
+		contextMode: args.job.contextMode,
+		jobId: args.job.jobId,
+		sessionId: args.job.childSessionId,
+		sessionPath: args.job.childSessionPath,
+		status: "running",
+		exitCode: 0,
+		messages: [],
+		stderr: "",
+		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+		model: args.job.model,
+	};
+
+	const emitUpdate = () => {
+		if (!args.onUpdate) return;
+		args.onUpdate({
+			content: [{ type: "text", text: getFinalOutput(result.messages) || "(running...)" }],
+			details: args.makeDetails([result]),
+		});
+		};
+
+	let sessionHandle: Awaited<ReturnType<typeof createAgentSession>> | undefined;
+	let unsubscribe: (() => void) | undefined;
+	let abortCleanup: (() => void) | undefined;
+
+	try {
+		const sessionDir = path.dirname(args.job.childSessionPath);
+		const childSessionManager = SessionManager.open(args.job.childSessionPath, sessionDir);
+		const childCwd = childSessionManager.getCwd();
+		const agentDir = getAgentDir();
+		const childSettingsManager = SettingsManager.create(childCwd, agentDir);
+		const childResourceLoader = new DefaultResourceLoader({
+			cwd: childCwd,
+			agentDir,
+			settingsManager: childSettingsManager,
+			systemPromptOverride:
+				args.job.promptMode === "replace" ? () => args.job.systemPrompt : undefined,
+			appendSystemPromptOverride:
+				args.job.promptMode === "append" && args.job.systemPrompt.trim().length > 0
+					? (base) => [...base, args.job.systemPrompt]
+					: undefined,
+		});
+		await childResourceLoader.reload();
+
+		sessionHandle = await createAgentSession({
+			cwd: childCwd,
+			agentDir,
+			modelRegistry: args.modelRegistry,
+			sessionManager: childSessionManager,
+			settingsManager: childSettingsManager,
+			resourceLoader: childResourceLoader,
+			tools: args.job.disableAllTools ? undefined : args.job.toolNames,
+			noTools: args.job.disableAllTools ? "all" : undefined,
+		});
+
+		const childSession = sessionHandle.session;
+		await childSession.bindExtensions({
+			onError: (error) => {
+				result.stderr += `Extension error (${error.extensionPath}): ${error.error}\n`;
+			},
+		});
+
+		const syncSnapshot = () => {
+			const snapshot = [...childSession.state.messages];
+			if (childSession.state.streamingMessage?.role === "assistant") {
+				snapshot.push(childSession.state.streamingMessage);
+			}
+			result.messages = getTrackableMessages(snapshot);
+			const outcome = extractRunOutcome(result.messages);
+			result.usage = outcome.usage;
+			result.stopReason = outcome.stopReason;
+			result.errorMessage = outcome.errorMessage;
+			result.model = childSession.model ? `${childSession.model.provider}/${childSession.model.id}` : result.model;
+			emitUpdate();
+		};
+
+		unsubscribe = childSession.subscribe((event) => {
+			if (
+				event.type === "message_start" ||
+				event.type === "message_update" ||
+				event.type === "message_end" ||
+				event.type === "tool_execution_start" ||
+				event.type === "tool_execution_update" ||
+				event.type === "tool_execution_end"
+			) {
+				syncSnapshot();
+			}
+		});
+
+		if (args.signal) {
+			const abortChild = () => {
+				void childSession.abort();
+			};
+			if (args.signal.aborted) abortChild();
+			else args.signal.addEventListener("abort", abortChild, { once: true });
+			abortCleanup = () => args.signal?.removeEventListener("abort", abortChild);
+		}
+
+		args.appendJobRecord(updateTeammateJobRecord(args.job, "running"));
+		await childSession.agent.continue();
+		await childSession.agent.waitForIdle();
+		syncSnapshot();
+
+		const outcome = extractRunOutcome(result.messages);
+		result.exitCode = outcome.exitCode;
+		result.usage = outcome.usage;
+		result.stopReason = outcome.stopReason;
+		result.errorMessage = outcome.errorMessage;
+		result.status = result.exitCode === 0 ? "completed" : result.stopReason === "aborted" ? "aborted" : "failed";
+		args.appendJobRecord(updateTeammateJobRecord(args.job, result.status as any));
+		return result;
+	} catch (error) {
+		result.exitCode = 1;
+		result.status = "failed";
+		result.stderr += `${error instanceof Error ? error.message : String(error)}`;
+		args.appendJobRecord(updateTeammateJobRecord(args.job, "failed"));
+		return result;
+	} finally {
+		abortCleanup?.();
+		unsubscribe?.();
+		sessionHandle?.session.dispose();
+	}
+}
+
+function findTeammateJob(sessionEntries: SessionEntry[], sessionId: string): TeammateJobRecord | undefined {
+	return collectLatestTeammateJobs(sessionEntries).get(sessionId);
 }
 
 function formatAvailableTeammates(teammates: TeammateConfig[]): string {
@@ -580,6 +767,7 @@ const ContextModeSchema = StringEnum(TEAMMATE_CONTEXT_MODES, {
 });
 
 const DelegateParamsSchema = Type.Object({
+	resumeSessionId: Type.Optional(Type.String({ description: "Resume a previously started teammate session by its returned session id." })),
 	teammate: Type.Optional(Type.String({ description: "Name of the teammate to invoke (single mode)" })),
 	task: Type.Optional(Type.String({ description: "Task to delegate (single mode)" })),
 	tasks: Type.Optional(Type.Array(TaskItem, { description: "Parallel teammate tasks" })),
@@ -589,6 +777,7 @@ const DelegateParamsSchema = Type.Object({
 });
 
 type DelegateParams = {
+	resumeSessionId?: string;
 	teammate?: string;
 	task?: string;
 	tasks?: Array<{ teammate: string; task: string; cwd?: string }>;
@@ -621,10 +810,11 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 		name: "delegate",
 		label: "Delegate",
 		description: [
-			"Delegate a bounded task to one teammate, several teammates in parallel, or a sequential teammate chain, each running in an isolated pi subprocess with its own context window.",
+			"Delegate a bounded task to one teammate, several teammates in parallel, or a sequential teammate chain, each running in its own isolated pi session with its own context window.",
 			"Use it for focused research, implementation, verification, or review work that benefits from a fresh context or teammate-specific prompt, tool, model, or context-transfer strategy.",
 			"Context strategies: new = fresh task only; inherit = continue from the caller's exact session context; summary = fresh context plus a generated task-focused summary; handoff = fresh context plus a generated task handoff packet.",
 			"If context is omitted, the teammate's configured default is used, and that default is new unless the teammate explicitly sets another mode.",
+			"Every delegate invocation persists its own internal teammate session and returns that session id so the caller can resume it later with resumeSessionId if needed.",
 			"Do not use it for vague handoffs; provide the exact files, constraints, and output you want back.",
 			"Returns the final teammate output plus structured execution details, and streams progress while work is running.",
 		].join(" "),
@@ -635,6 +825,7 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 			"Use `delegate` with context=inherit only when the child must continue from the caller's exact transcript-level context rather than a distilled transfer.",
 			"Use `delegate` with context=summary when the child needs broader context but a compact task-focused summary is enough.",
 			"Use `delegate` with context=handoff when you are explicitly handing off one specific next task and want the child to receive a clean execution-oriented transfer packet.",
+			"If a teammate run was interrupted, use `delegate` with resumeSessionId set to the previously returned child session id to reopen that internal teammate session and continue its agent flow.",
 			"When using `delegate`, provide the relevant files, constraints, and the exact output you want back.",
 		],
 		parameters: DelegateParamsSchema,
@@ -643,7 +834,13 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 			const runtimeConfig = loadTeammatesConfig(ctx.cwd).config.teammates;
 			const lineage = parseTeammatesLineage(process.env[TEAMMATES_LINEAGE_ENV]);
 			const currentBranch = ctx.sessionManager.getBranch();
+			const currentEntries = ctx.sessionManager.getEntries();
+			const currentSessionId = ctx.sessionManager.getSessionId();
+			const currentSessionDir = ctx.sessionManager.getSessionDir();
 			const currentSessionFile = ctx.sessionManager.getSessionFile();
+			const appendJobRecord = (record: TeammateJobRecord) => {
+				pi.appendEntry(TEAMMATE_JOB_CUSTOM_TYPE, record);
+			};
 			const discovery = discoverTeammates(ctx.cwd, {
 				loadProjectTeammates: runtimeConfig.loadProjectTeammates,
 			});
@@ -655,7 +852,8 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
 			const hasSingle = Boolean(params.teammate && params.task);
-			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
+			const hasResume = typeof params.resumeSessionId === "string" && params.resumeSessionId.trim().length > 0;
+			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle) + Number(hasResume);
 
 			const makeDetails =
 				(mode: "single" | "parallel" | "chain") =>
@@ -675,6 +873,46 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 						},
 					],
 					details: makeDetails("single")([]),
+				};
+			}
+
+			if (hasResume) {
+				const sessionId = params.resumeSessionId!.trim();
+				const job = findTeammateJob(currentEntries, sessionId);
+				if (!job) {
+					return {
+						content: [{ type: "text", text: `No teammate session found for resumeSessionId ${sessionId}.` }],
+						details: makeDetails("single")([]),
+					};
+				}
+				if (job.status === "completed") {
+					return {
+						content: [{ type: "text", text: `Teammate session ${sessionId} is already completed and cannot be resumed with continue().` }],
+						details: makeDetails("single")([]),
+					};
+				}
+
+				const result = await resumeTeammateSession({
+					runtimeConfig,
+					job,
+					signal,
+					onUpdate,
+					makeDetails: makeDetails("single"),
+					modelRegistry: ctx.modelRegistry,
+					appendJobRecord,
+				});
+
+				const sessionNote = result.sessionId ? `Session: ${result.sessionId}\n` : "";
+				if (isFailedResult(result)) {
+					return {
+						content: [{ type: "text", text: `${sessionNote}Resume failed: ${getResultOutput(result)}` }],
+						details: makeDetails("single")([result]),
+					};
+				}
+
+				return {
+					content: [{ type: "text", text: `${sessionNote}${getFinalOutput(result.messages) || "(no output)"}` }],
+					details: makeDetails("single")([result]),
 				};
 			}
 
@@ -718,9 +956,12 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 						teammates,
 						lineage,
 						parentBranch: currentBranch,
+						parentSessionId: currentSessionId,
+						parentSessionDir: currentSessionDir,
 						currentSessionFile,
 						currentModel: ctx.model,
 						modelRegistry: ctx.modelRegistry,
+						appendJobRecord,
 						contextOverride: params.context,
 						teammateName: step.teammate,
 						task: taskWithContext,
@@ -734,8 +975,9 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 
 					if (isFailedResult(result)) {
 						const errorMessage = getResultOutput(result);
+						const sessionNote = result.sessionId ? ` session ${result.sessionId}` : "";
 						return {
-							content: [{ type: "text", text: `Chain stopped at step ${i + 1} (${step.teammate}): ${errorMessage}` }],
+							content: [{ type: "text", text: `Chain stopped at step ${i + 1} (${step.teammate}${sessionNote}): ${errorMessage}` }],
 							details: makeDetails("chain")(results),
 						};
 					}
@@ -743,7 +985,10 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 				}
 
 				return {
-					content: [{ type: "text", text: getFinalOutput(results[results.length - 1].messages) || "(no output)" }],
+					content: [{
+						type: "text",
+						text: `${results.map((result) => `${result.teammate}: ${result.sessionId ?? "unknown"}`).join("\n")}\n\n${getFinalOutput(results[results.length - 1].messages) || "(no output)"}`,
+					}],
 					details: makeDetails("chain")(results),
 				};
 			}
@@ -795,9 +1040,12 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 							teammates,
 							lineage,
 							parentBranch: currentBranch,
+							parentSessionId: currentSessionId,
+							parentSessionDir: currentSessionDir,
 							currentSessionFile,
 							currentModel: ctx.model,
 							modelRegistry: ctx.modelRegistry,
+							appendJobRecord,
 							contextOverride: params.context,
 							teammateName: taskItem.teammate,
 							task: taskItem.task,
@@ -823,7 +1071,7 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 					const status = isFailedResult(result)
 						? `failed${result.stopReason && result.stopReason !== "end" ? ` (${result.stopReason})` : ""}`
 						: "completed";
-					return `### [${result.teammate}] ${status}\n\n${output}`;
+					return `### [${result.teammate}] ${status}\n\nSession: ${result.sessionId ?? "unknown"}\n\n${output}`;
 				});
 				return {
 					content: [
@@ -844,9 +1092,12 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 					teammates,
 					lineage,
 					parentBranch: currentBranch,
+					parentSessionId: currentSessionId,
+					parentSessionDir: currentSessionDir,
 					currentSessionFile,
 					currentModel: ctx.model,
 					modelRegistry: ctx.modelRegistry,
+					appendJobRecord,
 					contextOverride: params.context,
 					teammateName: params.teammate,
 					task: params.task,
@@ -858,13 +1109,15 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 				});
 				if (isFailedResult(result)) {
 					const errorMessage = getResultOutput(result);
+					const sessionNote = result.sessionId ? `Session: ${result.sessionId}\n` : "";
 					return {
-						content: [{ type: "text", text: `Teammate ${result.stopReason || "failed"}: ${errorMessage}` }],
+						content: [{ type: "text", text: `${sessionNote}Teammate ${result.stopReason || "failed"}: ${errorMessage}` }],
 						details: makeDetails("single")([result]),
 					};
 				}
+				const sessionNote = result.sessionId ? `Session: ${result.sessionId}\n` : "";
 				return {
-					content: [{ type: "text", text: getFinalOutput(result.messages) || "(no output)" }],
+					content: [{ type: "text", text: `${sessionNote}${getFinalOutput(result.messages) || "(no output)"}` }],
 					details: makeDetails("single")([result]),
 				};
 			}
@@ -876,6 +1129,13 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme) {
+			if (args.resumeSessionId) {
+				return new Text(
+					theme.fg("toolTitle", theme.bold("delegate ")) + theme.fg("accent", `resume ${args.resumeSessionId}`),
+					0,
+					0,
+				);
+			}
 			const contextSuffix = args.context ? theme.fg("muted", ` [${args.context}]`) : "";
 			if (args.chain && args.chain.length > 0) {
 				let text =

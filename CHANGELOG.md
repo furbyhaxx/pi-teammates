@@ -14,8 +14,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Added teammate frontmatter support for `tools` maps, `delegate`, `model`, and `prompt: append|replace`.
 - Added teammate context strategies with frontmatter `context: new|inherit|summary|handoff` plus a matching `delegate.context` override.
 - Added configurable `teammates.context.models`, `summaryModels`, and `handoffModels` lists for context-packet generation, with current-session-model fallback.
+- Added internal persisted teammate sessions plus custom-entry job records so delegate runs can be resumed by child session id.
 - Added recursion guards and dynamic teammate XML prompt injection.
-- Added unit tests for config loading, teammate discovery, delegation policy, process planning, and context-transfer helpers.
+- Added unit tests for config loading, teammate discovery, delegation policy, process planning, context-transfer helpers, and teammate job registry state.
 - Added example teammate definitions under `examples/teammates/`.
 - Added a commented `examples/settings.jsonc` file documenting all extension config knobs, defaults, and value shapes.
 

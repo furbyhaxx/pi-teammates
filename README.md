@@ -45,6 +45,8 @@ pi install npm:@furbyhaxx/pi-teammates
 - Supports teammate `tools` maps with per-tool enable/disable rules and settings-defined aliases.
 - Denies delegation by default inside child teammates unless `tools.delegate: true` is set.
 - Blocks recursive delegation back into the current teammate lineage.
+- Persists each delegate invocation into its own internal teammate session JSONL under the parent session directory.
+- Returns teammate session ids so broken runs can be resumed through `delegate` itself.
 - Appends a dynamic teammate XML block to the system prompt only when delegation is actually available.
 - Makes the subagent example limits configurable through `settings.json`.
 
@@ -228,6 +230,14 @@ The tool supports three modes:
 }
 ```
 
+### Resume a broken teammate session
+
+```json
+{
+  "resumeSessionId": "child-session-id"
+}
+```
+
 ### Parallel
 
 ```json
@@ -253,6 +263,20 @@ The tool supports three modes:
 ```
 
 Optional `cwd` is supported in single, parallel task items, and chain step items. Optional top-level `context` overrides every teammate's frontmatter default for that delegate call.
+
+`resumeSessionId` is an alternative mode. Use the session id returned by a previous `delegate` call to reopen that persisted teammate session and continue its agent flow after something broke.
+
+## Internal teammate sessions
+
+Each delegate invocation now creates a real persisted child session stored under the parent session directory, conceptually like:
+
+```text
+~/.pi/agent/sessions/<sanitized-cwd>/<parent-session-id>/<child-session-file>.jsonl
+```
+
+These teammate sessions are intentionally internal-only and are not meant to clutter Pi's normal top-level session listing.
+
+The parent session records teammate job metadata using Pi custom session entries so the extension can find and resume them later.
 
 ## Delegation prompt behavior
 

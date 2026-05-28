@@ -34,7 +34,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "tsx tests/config.test.ts && tsx tests/teammates.test.ts && tsx tests/delegate.test.ts && tsx tests/process.test.ts && tsx tests/context.test.ts",
+    "test:unit": "tsx tests/config.test.ts && tsx tests/teammates.test.ts && tsx tests/delegate.test.ts && tsx tests/process.test.ts && tsx tests/context.test.ts && tsx tests/jobs.test.ts",
     "test": "npm run typecheck && npm run test:unit",
     "build": "npm run typecheck"
   },
