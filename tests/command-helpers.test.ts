@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
+	buildImproveDelegationPrompt,
 	buildManualDelegationTranscript,
 	buildTeammateTemplate,
 	defaultNewSessionTask,
+	IMPROVE_TASK_SYSTEM_PROMPT,
 	parseTeamCommandArgs,
 } from "../src/command-helpers.ts";
 
@@ -27,6 +29,29 @@ assert.deepEqual(parseTeamCommandArgs("find all auth providers"), {
 assert.equal(defaultNewSessionTask("summary", ""), "Continue the work from this summary in the new session.");
 assert.equal(defaultNewSessionTask("handoff", ""), "Continue the next task from this handoff in the new session.");
 assert.equal(defaultNewSessionTask("handoff", "Ship phase one"), "Ship phase one");
+
+assert.match(IMPROVE_TASK_SYSTEM_PROMPT, /# Role/);
+assert.match(IMPROVE_TASK_SYSTEM_PROMPT, /Adapt to context mode:/);
+assert.match(IMPROVE_TASK_SYSTEM_PROMPT, /Return only the improved delegated task text\./);
+
+assert.equal(
+	buildImproveDelegationPrompt({
+		contextLabel: "handoff",
+		conversationText: "user: investigate auth failures",
+		rawTask: "look into auth",
+	}),
+	[
+		"<delegation_context_mode>",
+		"handoff",
+		"</delegation_context_mode>",
+		"<current_conversation>",
+		"user: investigate auth failures",
+		"</current_conversation>",
+		"<rough_task>",
+		"look into auth",
+		"</rough_task>",
+	].join("\n"),
+);
 
 const template = buildTeammateTemplate({ name: "scout", description: "Fast recon" });
 assert.match(template, /^---/);

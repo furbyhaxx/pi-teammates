@@ -33,3 +33,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Updated all example teammate files to declare `context: new` explicitly so the default context-transfer mode is shown in-place.
 - Updated example teammate profiles to demonstrate non-empty `skills` lists.
 - Reworked the bundled teammate profiles into stricter operating-policy prompts with sharper descriptions, aligned skills, narrower tool intent, and allowed-model selections.
+- Tightened the manual `--improve` task-rewriter prompt and the injected parent delegation-policy prompt so teammate handoffs are more concrete and context-aware.
+- Reworked the `delegate` tool description, prompt snippet, and prompt guidelines so tool routing, context-mode choice, resume behavior, and delegation-task quality are specified more explicitly.

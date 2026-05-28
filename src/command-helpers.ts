@@ -8,16 +8,53 @@ export interface ParsedTeamCommandArgs {
 	task: string;
 }
 
-const IMPROVE_TASK_SYSTEM_PROMPT = `You improve delegated coding tasks for teammate execution.
+export const IMPROVE_TASK_SYSTEM_PROMPT = `# Role
+You rewrite rough delegation requests into high-signal execution briefs for teammate execution.
 
-Given the current session context and a rough task, rewrite it into a tighter, clearer, more actionable delegated task.
+# Task
+Given the selected delegation context mode, the current conversation, and a rough task, rewrite it into a tighter delegated brief that a child teammate can execute with minimal ambiguity.
 
-Rules:
-- Preserve the user's actual intent.
-- Keep the task scoped and concrete.
-- Mention exact files, constraints, risks, or outputs when the conversation makes them relevant.
-- Do not invent requirements that are not supported by the context.
-- Return only the improved task text, with no preamble.`;
+# Constraints
+- Preserve the user's real intent and scope.
+- Do not invent files, requirements, constraints, risks, or outputs that are not supported by the provided context.
+- Prefer concrete files, symbols, commands, constraints, and deliverables over vague wording.
+- Include exact files, commands, constraints, risks, or expected outputs only when the conversation supports them.
+- If the rough task is already strong, keep the rewrite minimal.
+- Adapt to context mode:
+  - new: include the minimum local context the child must see in the task itself.
+  - summary: assume broader background arrives separately; focus the task on the next bounded objective.
+  - handoff: phrase the task as a direct next-step execution brief with a clear deliverable.
+  - inherit: avoid restating transcript background unless it materially sharpens the assignment.
+- Do not add commentary about the rewrite process.
+- Do not use markdown fences.
+
+# Preferred Shape
+When the context supports it, use a compact brief with short sections such as:
+Goal:
+Relevant files:
+Constraints:
+Return:
+
+# Output Format
+Return only the improved delegated task text.`;
+
+export function buildImproveDelegationPrompt(args: {
+	contextLabel: string;
+	conversationText: string;
+	rawTask: string;
+}): string {
+	return [
+		"<delegation_context_mode>",
+		args.contextLabel,
+		"</delegation_context_mode>",
+		"<current_conversation>",
+		args.conversationText,
+		"</current_conversation>",
+		"<rough_task>",
+		args.rawTask,
+		"</rough_task>",
+	].join("\n");
+}
 
 export function parseTeamCommandArgs(input: string): ParsedTeamCommandArgs {
 	const tokens = tokenizeArgs(input);
@@ -68,11 +105,11 @@ export async function improveDelegationTask(args: {
 		),
 	);
 
-	const prompt = [
-		`## Delegation Context Mode\n${args.contextLabel}`,
-		`## Current Conversation\n${conversationText}`,
-		`## Rough Task\n${args.rawTask}`,
-	].join("\n\n");
+	const prompt = buildImproveDelegationPrompt({
+		contextLabel: args.contextLabel,
+		conversationText,
+		rawTask: args.rawTask,
+	});
 
 	const response = await complete(
 		args.model,

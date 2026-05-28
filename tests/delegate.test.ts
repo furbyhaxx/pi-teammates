@@ -83,7 +83,15 @@ const prompt = buildTeamPromptBlock([
 assert.equal(
 	prompt,
 	[
-		'Below is a list of your teammates with their specializations, capabilities and domains. Use this information to delegate narrow, concrete work that benefits from a fresh context window or teammate-specific tools, prompts, or model settings. Delegate execution, not judgment: decide what needs to be done, pass the relevant files and constraints, and ask for the exact output you want back.',
+		'<delegation_policy>',
+		'Use delegation only for bounded execution tasks where specialization, isolation, or parallelism clearly helps.',
+		'Do not delegate when you can complete the work directly from the current context without losing quality.',
+		'Delegate execution, not judgment. Decide the real task yourself before calling `delegate`.',
+		'Every delegated task should include the concrete goal, relevant files or symbols when known, important constraints or risks, and the expected output.',
+		'Do not send vague prompts like "look into this", "handle it", or "fix the bug" without the actual scoped brief.',
+		'Choose context deliberately: `new` for self-contained tasks, `summary` for fresh workers that need broader background, `handoff` for one specific next-step execution brief, and `inherit` only when transcript continuity is truly required.',
+		'After a teammate returns, integrate the result yourself or issue a tighter follow-up; do not assume the child owns the conversation.',
+		'</delegation_policy>',
 		'<team>',
 		'<member name="scout &amp; recon">Reads &lt;files&gt; &amp; reports only what matters.</member>',
 		'<member name="reviewer">Performs verification and code review.</member>',
