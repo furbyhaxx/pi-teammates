@@ -8,6 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Added `recruiting-teammates` skill covering both user-requested and agent-autonomous teammate creation, including a requirements interview, teammate spec design guide, file placement, and a test-delegation validation loop. Registered `./skills` in the pi package manifest so the skill ships with the extension.
 - Added the `delegate` tool with single, parallel, and chained teammate execution.
 - Added scoped teammate discovery from `${PI_CODING_AGENT_DIR}/teammates/**/*.md` and nearest ancestor `.pi/teammates/**/*.md` directories.
 - Added `teammates` settings for project loading, parallelism limits, collapsed output count, output caps, and tool aliases.
