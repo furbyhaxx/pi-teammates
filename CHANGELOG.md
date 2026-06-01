@@ -37,3 +37,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Reworked the `delegate` tool description, prompt snippet, and prompt guidelines so tool routing, context-mode choice, resume behavior, and delegation-task quality are specified more explicitly.
 - Updated delegate result rendering to display the child session's effective model plus thinking level instead of dropping the `:thinking` suffix from live TUI output.
 - Propagated the effective child model/thinking label into `/team:status` job details, manual delegation transcript summaries, and the final `delegate` tool content returned to the calling agent.
+- Reworked `/team:status` and `/team:manage` overlays to use responsive large-modal sizing, tall content-padded desktop heights, and adaptive column widths instead of the default narrow centered overlay.

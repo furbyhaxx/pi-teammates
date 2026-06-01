@@ -1,6 +1,14 @@
 import { copyToClipboard, type ExtensionCommandContext, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth, type Focusable } from "@earendil-works/pi-tui";
 import { collectLatestTeammateJobs, type TeammateJobRecord } from "./job-registry.ts";
+import {
+	buildResponsiveOverlayOptions,
+	getLargeModalLayout,
+	getStatusColumnWidths,
+	getVisibleWindow,
+	padRowsToCount,
+	padToVisibleWidth,
+} from "./overlay-layout.ts";
 
 interface StatusAction {
 	action: "inspect" | "resume" | "copy" | "close";
@@ -16,10 +24,14 @@ export async function showTeammateStatusOverlay(args: {
 	while (true) {
 		const action = await args.ctx.ui.custom<StatusAction | undefined>(
 			(tui, theme, _kb, done) =>
-				new StatusOverlayComponent(theme, () => collectJobs(args.ctx.sessionManager.getEntries()), done, () =>
-					tui.requestRender(),
+				new StatusOverlayComponent(
+					theme,
+					() => collectJobs(args.ctx.sessionManager.getEntries()),
+					done,
+					() => tui.requestRender(),
+					() => tui.terminal.rows,
 				),
-			{ overlay: true },
+			{ overlay: true, overlayOptions: buildResponsiveOverlayOptions(72) },
 		);
 
 		if (!action || action.action === "close") return;
@@ -79,11 +91,18 @@ async function showJobDetails(ctx: ExtensionCommandContext, job: TeammateJobReco
 		];
 		return {
 			render(width: number) {
-				const inner = Math.max(20, width - 2);
+				const inner = Math.max(1, width - 2);
+				const layout = getLargeModalLayout({ terminalRows: _tui.terminal.rows, chromeRows: 3 });
+				const visibleLines = lines.length > layout.contentRows ? [...lines.slice(0, Math.max(1, layout.contentRows - 1)), "…"] : lines;
+				const paddedLines = padRowsToCount(visibleLines, layout.contentRows);
+				const row = (line: string) => {
+					const content = padToVisibleWidth(` ${line}`, inner);
+					return theme.fg("accent", "│") + content + theme.fg("accent", "│");
+				};
 				return [
-					theme.fg("accent", `┌${"─".repeat(inner)}┐`),
-					...lines.map((line) => theme.fg("accent", "│") + truncateToWidth(` ${line}`, inner) + theme.fg("accent", "│")),
-					theme.fg("accent", `└${"─".repeat(inner)}┘`),
+					theme.fg("accent", `┌${"─".repeat(Math.max(0, inner))}┐`),
+					...paddedLines.map(row),
+					theme.fg("accent", `└${"─".repeat(Math.max(0, inner))}┘`),
 					theme.fg("dim", "Enter or Esc to close"),
 				];
 			},
@@ -92,7 +111,7 @@ async function showJobDetails(ctx: ExtensionCommandContext, job: TeammateJobReco
 				if (matchesKey(data, "enter") || matchesKey(data, "escape")) done();
 			},
 		};
-	}, { overlay: true });
+	}, { overlay: true, overlayOptions: buildResponsiveOverlayOptions(64) });
 }
 
 class StatusOverlayComponent implements Focusable {
@@ -105,26 +124,46 @@ class StatusOverlayComponent implements Focusable {
 		private readonly getJobs: () => TeammateJobRecord[],
 		private readonly done: (action: StatusAction | undefined) => void,
 		private readonly requestRender: () => void,
+		private readonly getTerminalRows: () => number,
 	) {
 		this.refreshTimer = setInterval(() => this.requestRender(), 750);
 	}
 
 	render(width: number): string[] {
 		const jobs = this.getJobs();
-		const maxWidth = Math.max(60, Math.min(width, 120));
+		this.selected = Math.min(this.selected, Math.max(0, jobs.length - 1));
+		const panelWidth = width;
+		const columnWidths = getStatusColumnWidths(panelWidth);
+		const layout = getLargeModalLayout({ terminalRows: this.getTerminalRows(), chromeRows: 7 });
+		if (layout.contentRows < 1) {
+			return this.renderCompact(panelWidth, jobs);
+		}
+		const visibleWindow = getVisibleWindow({
+			itemCount: jobs.length,
+			selectedIndex: this.selected,
+			maxVisibleItems: layout.contentRows,
+		});
+		const visibleJobs = jobs.slice(visibleWindow.start, visibleWindow.end);
 		const rows: string[] = [];
-		const border = this.theme.fg("accent", `┌${"─".repeat(maxWidth - 2)}┐`);
+		const border = this.theme.fg("accent", `┌${"─".repeat(Math.max(0, panelWidth - 2))}┐`);
 		rows.push(border);
-		rows.push(this.row(maxWidth, this.theme.bold(" Teammate activity")));
-		rows.push(this.row(maxWidth, this.theme.fg("dim", padColumns(["Status", "Teammate", "Context", "Session", "Task"], [8, 16, 12, 14, maxWidth - 54]))));
-		rows.push(this.row(maxWidth, this.theme.fg("dim", "─".repeat(maxWidth - 4))));
+		rows.push(this.row(panelWidth, this.theme.bold(" Teammate activity")));
+		rows.push(
+			this.row(
+				panelWidth,
+				this.theme.fg("dim", padColumns(["Status", "Teammate", "Context", "Session", "Task"], columnWidths)),
+			),
+		);
+		rows.push(this.row(panelWidth, this.theme.fg("dim", "─".repeat(Math.max(0, panelWidth - 4)))));
 
+		const contentRows: string[] = [];
 		if (jobs.length === 0) {
-			rows.push(this.row(maxWidth, this.theme.fg("muted", " No teammate activity recorded in this session.")));
+			contentRows.push(this.row(panelWidth, this.theme.fg("muted", " No teammate activity recorded in this session.")));
 		} else {
-			for (let i = 0; i < jobs.length; i++) {
-				const job = jobs[i]!;
-				const selected = i === this.selected;
+			for (let index = 0; index < visibleJobs.length; index++) {
+				const jobIndex = visibleWindow.start + index;
+				const job = visibleJobs[index]!;
+				const selected = jobIndex === this.selected;
 				const columns = padColumns(
 					[
 						statusLabel(job.status),
@@ -133,16 +172,17 @@ class StatusOverlayComponent implements Focusable {
 						job.childSessionId,
 						job.task,
 					],
-					[8, 16, 12, 14, maxWidth - 54],
+					columnWidths,
 				);
-				rows.push(this.row(maxWidth, selected ? this.theme.bg("selectedBg", this.theme.fg("text", columns)) : columns));
+				contentRows.push(this.row(panelWidth, selected ? this.theme.bg("selectedBg", this.theme.fg("text", columns)) : columns));
 			}
 		}
+		rows.push(...padRowsToCount(contentRows, layout.contentRows, this.row(panelWidth, "")));
 
-		rows.push(this.row(maxWidth, this.theme.fg("dim", "─".repeat(maxWidth - 4))));
-		rows.push(this.row(maxWidth, this.theme.fg("dim", " [Enter] Inspect session   [r] Resume   [c] Copy id   [Esc] Close")));
-		rows.push(this.theme.fg("accent", `└${"─".repeat(maxWidth - 2)}┘`));
-		return rows.map((line) => truncateToWidth(line, width));
+		rows.push(this.row(panelWidth, this.theme.fg("dim", "─".repeat(Math.max(0, panelWidth - 4)))));
+		rows.push(this.row(panelWidth, this.theme.fg("dim", this.footerText(panelWidth, visibleWindow.start, Math.max(0, jobs.length - visibleWindow.end)))));
+		rows.push(this.theme.fg("accent", `└${"─".repeat(Math.max(0, panelWidth - 2))}┘`));
+		return rows.map((line) => truncateToWidth(line, panelWidth));
 	}
 
 	invalidate(): void {}
@@ -182,8 +222,33 @@ class StatusOverlayComponent implements Focusable {
 	}
 
 	private row(width: number, content: string): string {
-		const inner = width - 4;
-		return this.theme.fg("accent", "│") + truncateToWidth(` ${content}`, inner) + " ".repeat(Math.max(0, inner - visibleTextWidth(content) - 1)) + this.theme.fg("accent", "│");
+		const inner = Math.max(1, width - 4);
+		const display = padToVisibleWidth(content, inner);
+		return this.theme.fg("accent", "│") + " " + display + " " + this.theme.fg("accent", "│");
+	}
+
+	private renderCompact(width: number, jobs: TeammateJobRecord[]): string[] {
+		const rows: string[] = [];
+		rows.push(this.theme.fg("accent", `┌${"─".repeat(Math.max(0, width - 2))}┐`));
+		rows.push(this.row(width, this.theme.bold("Teammate activity")));
+		const job = jobs[this.selected];
+		if (!job) {
+			rows.push(this.row(width, this.theme.fg("muted", "No teammate activity.")));
+		} else {
+			const summary = `${statusLabel(job.status)} ${job.teammateName} — ${job.task}`;
+			rows.push(this.row(width, this.theme.bg("selectedBg", this.theme.fg("text", summary))));
+		}
+		rows.push(this.row(width, this.theme.fg("dim", "Esc close")));
+		rows.push(this.theme.fg("accent", `└${"─".repeat(Math.max(0, width - 2))}┘`));
+		return rows.map((line) => truncateToWidth(line, width));
+	}
+
+	private footerText(panelWidth: number, hiddenAbove: number, hiddenBelow: number): string {
+		const scrollHint = hiddenAbove > 0 || hiddenBelow > 0 ? `↑${hiddenAbove} ↓${hiddenBelow} ` : "";
+		if (panelWidth <= 88) {
+			return `${scrollHint}Enter inspect  r resume  c copy  Esc close`;
+		}
+		return `${scrollHint}[Enter] Inspect session   [r] Resume   [c] Copy id   [Esc] Close`;
 	}
 }
 
@@ -204,10 +269,6 @@ function statusLabel(status: TeammateJobRecord["status"]): string {
 
 function padColumns(values: string[], widths: number[]): string {
 	return values
-		.map((value, index) => truncateToWidth(value, widths[index] ?? value.length).padEnd(widths[index] ?? value.length))
+		.map((value, index) => padToVisibleWidth(value, widths[index] ?? value.length))
 		.join("  ");
-}
-
-function visibleTextWidth(value: string): number {
-	return value.replace(/\x1b\[[0-9;]*m/g, "").length;
 }
