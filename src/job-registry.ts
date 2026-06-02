@@ -13,6 +13,8 @@ export interface TeammateJobRecord {
 	childSessionId: string;
 	childSessionPath: string;
 	teammateName: string;
+	/** Whether this teammate came from user or project scope. */
+	source?: "user" | "project";
 	task: string;
 	contextMode: TeammateContextMode;
 	cwd: string;
@@ -34,6 +36,7 @@ export function createTeammateJobRecord(args: {
 	childSessionId: string;
 	childSessionPath: string;
 	teammateName: string;
+	source?: "user" | "project";
 	task: string;
 	contextMode: TeammateContextMode;
 	cwd: string;
@@ -54,6 +57,7 @@ export function createTeammateJobRecord(args: {
 		childSessionId: args.childSessionId,
 		childSessionPath: args.childSessionPath,
 		teammateName: args.teammateName,
+		source: args.source,
 		task: args.task,
 		contextMode: args.contextMode,
 		cwd: args.cwd,

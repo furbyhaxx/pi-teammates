@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getAgentDir, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth, type Focusable } from "@earendil-works/pi-tui";
@@ -39,7 +39,7 @@ export async function runTeammateManager(ctx: ExtensionCommandContext): Promise<
 
 		if (!action || action.action === "close") return;
 		if (action.action === "edit") {
-			await editTeammateFile(ctx, action.teammate.filePath);
+			await editTeammateFile(ctx, action.teammate);
 			continue;
 		}
 		if (action.action === "duplicate") {
@@ -56,13 +56,13 @@ export async function runTeammateManager(ctx: ExtensionCommandContext): Promise<
 	}
 }
 
-async function editTeammateFile(ctx: ExtensionCommandContext, filePath: string): Promise<void> {
-	const current = await readFile(filePath, "utf-8");
-	const edited = await ctx.ui.editor(`Edit teammate: ${path.basename(filePath)}`, current);
+async function editTeammateFile(ctx: ExtensionCommandContext, teammate: TeammateConfig): Promise<void> {
+	const current = await readFile(teammate.filePath, "utf-8");
+	const edited = await ctx.ui.editor(`Edit teammate: ${path.basename(teammate.filePath)}`, current);
 	if (edited === undefined || edited === current) return;
-	parseTeammateMarkdown(filePath, "user", edited);
-	await writeFile(filePath, edited, "utf-8");
-	ctx.ui.notify(`Saved ${path.basename(filePath)}`, "info");
+	parseTeammateMarkdown(teammate.filePath, teammate.source, edited);
+	await writeFile(teammate.filePath, edited, "utf-8");
+	ctx.ui.notify(`Saved ${path.basename(teammate.filePath)}`, "info");
 }
 
 async function duplicateTeammate(ctx: ExtensionCommandContext, teammate: TeammateConfig): Promise<void> {
@@ -112,7 +112,7 @@ async function createTeammate(ctx: ExtensionCommandContext): Promise<void> {
 		scope === "project"
 			? findNearestProjectTeammatesDir(ctx.cwd) ?? path.join(ctx.cwd, ".pi", "teammates")
 			: path.join(getAgentDir(), "teammates");
-		await mkdir(dir, { recursive: true });
+	await mkdir(dir, { recursive: true });
 	const targetPath = path.join(dir, fileName);
 	if (await fileExists(targetPath)) {
 		ctx.ui.notify(`${fileName} already exists`, "warning");
@@ -128,7 +128,7 @@ async function createTeammate(ctx: ExtensionCommandContext): Promise<void> {
 
 async function fileExists(targetPath: string): Promise<boolean> {
 	try {
-		await readFile(targetPath, "utf-8");
+		await access(targetPath);
 		return true;
 	} catch {
 		return false;
@@ -143,16 +143,20 @@ function validateTeammateName(value: string): string | undefined {
 class ManageOverlayComponent implements Focusable {
 	focused = false;
 	private selected = 0;
+	// Cache discovery for the lifetime of this component instance (recreated after each action).
+	private readonly discovery: ReturnType<typeof discoverTeammates>;
 
 	constructor(
 		private readonly theme: ExtensionCommandContext["ui"]["theme"],
 		private readonly getDiscovery: () => ReturnType<typeof discoverTeammates>,
 		private readonly done: (result: ManageAction | undefined) => void,
 		private readonly getTerminalRows: () => number,
-	) {}
+	) {
+		this.discovery = this.getDiscovery();
+	}
 
 	render(width: number): string[] {
-		const teammates = this.getDiscovery().teammates;
+		const { teammates, warnings } = this.discovery;
 		this.selected = Math.min(this.selected, Math.max(0, teammates.length - 1));
 		const panelWidth = width;
 		const columnWidths = getManageColumnWidths(panelWidth);
@@ -201,7 +205,8 @@ class ManageOverlayComponent implements Focusable {
 		rows.push(...padRowsToCount(contentRows, layout.contentRows, this.row(panelWidth, "")));
 
 		rows.push(this.row(panelWidth, this.theme.fg("dim", "─".repeat(Math.max(0, panelWidth - 4)))));
-		rows.push(this.row(panelWidth, this.theme.fg("dim", this.footerText(panelWidth, visibleWindow.start, Math.max(0, teammates.length - visibleWindow.end)))));
+		const warningNote = warnings.length > 0 ? this.theme.fg("warning", ` ⚠ ${warnings.length} file(s) skipped`) : "";
+		rows.push(this.row(panelWidth, this.theme.fg("dim", this.footerText(panelWidth, visibleWindow.start, Math.max(0, teammates.length - visibleWindow.end))) + warningNote));
 		rows.push(this.theme.fg("accent", `└${"─".repeat(Math.max(0, panelWidth - 2))}┘`));
 		return rows.map((line) => truncateToWidth(line, panelWidth));
 	}
@@ -209,7 +214,7 @@ class ManageOverlayComponent implements Focusable {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
-		const teammates = this.getDiscovery().teammates;
+		const { teammates } = this.discovery;
 		if (matchesKey(data, "escape")) {
 			this.done({ action: "close" });
 			return;

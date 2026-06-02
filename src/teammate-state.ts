@@ -55,5 +55,12 @@ function isTeammateSessionState(value: unknown): value is TeammateSessionState {
 }
 
 function uniqueStrings(values: string[]): string[] {
-	return values.filter((value, index) => typeof value === "string" && value.trim().length > 0 && values.indexOf(value) === index);
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (const value of values) {
+		if (typeof value !== "string" || !value.trim() || seen.has(value)) continue;
+		seen.add(value);
+		result.push(value);
+	}
+	return result;
 }

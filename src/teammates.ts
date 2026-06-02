@@ -22,12 +22,57 @@ export interface TeammateConfig {
 export interface TeammateDiscoveryResult {
 	teammates: TeammateConfig[];
 	projectTeammatesDir: string | null;
+	/** Paths of teammate files that failed to parse, with error messages. */
+	warnings: string[];
 }
 
 export interface DiscoverTeammatesOptions {
 	agentDir?: string;
 	loadProjectTeammates?: boolean;
 }
+
+// ─── mtime-based discovery cache ─────────────────────────────────────────────
+
+interface TeammatesCacheEntry {
+	result: TeammateDiscoveryResult;
+	pathMtimes: Record<string, number>;
+}
+const _teammatesCache = new Map<string, TeammatesCacheEntry>();
+
+function getPathMtime(p: string): number {
+	try {
+		return fs.statSync(p).mtimeMs;
+	} catch {
+		return 0;
+	}
+}
+
+function collectDirMtimes(dir: string): Record<string, number> {
+	const mtimes: Record<string, number> = {};
+	mtimes[dir] = getPathMtime(dir);
+	if (!isDirectory(dir)) return mtimes;
+	try {
+		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+			const p = path.join(dir, entry.name);
+			if (entry.isDirectory()) {
+				Object.assign(mtimes, collectDirMtimes(p));
+			} else {
+				mtimes[p] = getPathMtime(p);
+			}
+		}
+	} catch {
+		// ignore unreadable directories
+	}
+	return mtimes;
+}
+
+function mtimesEqual(a: Record<string, number>, b: Record<string, number>): boolean {
+	const keysA = Object.keys(a);
+	if (keysA.length !== Object.keys(b).length) return false;
+	return keysA.every((k) => a[k] === b[k]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function parseTeammateMarkdown(
 	filePath: string,
@@ -68,20 +113,39 @@ export function discoverTeammates(
 	const userDir = path.join(agentDir, "teammates");
 	const projectTeammatesDir = findNearestProjectTeammatesDir(cwd);
 
+	const cacheKey = `${agentDir}::${projectTeammatesDir ?? ""}::${loadProjectTeammates}`;
+	const currentMtimes: Record<string, number> = {
+		...collectDirMtimes(userDir),
+		...(loadProjectTeammates && projectTeammatesDir ? collectDirMtimes(projectTeammatesDir) : {}),
+	};
+	const cached = _teammatesCache.get(cacheKey);
+	if (cached && mtimesEqual(cached.pathMtimes, currentMtimes)) {
+		return cached.result;
+	}
+
+	const warnings: string[] = [];
 	const teammateMap = new Map<string, TeammateConfig>();
-	for (const teammate of loadTeammatesFromDir(userDir, "user")) {
+
+	const userResult = loadTeammatesFromDir(userDir, "user");
+	warnings.push(...userResult.warnings);
+	for (const teammate of userResult.teammates) {
 		teammateMap.set(teammate.name, teammate);
 	}
 	if (loadProjectTeammates && projectTeammatesDir) {
-		for (const teammate of loadTeammatesFromDir(projectTeammatesDir, "project")) {
+		const projectResult = loadTeammatesFromDir(projectTeammatesDir, "project");
+		warnings.push(...projectResult.warnings);
+		for (const teammate of projectResult.teammates) {
 			teammateMap.set(teammate.name, teammate);
 		}
 	}
 
-	return {
+	const result: TeammateDiscoveryResult = {
 		teammates: Array.from(teammateMap.values()).sort((left, right) => left.name.localeCompare(right.name)),
 		projectTeammatesDir,
+		warnings,
 	};
+	_teammatesCache.set(cacheKey, { result, pathMtimes: currentMtimes });
+	return result;
 }
 
 export function findNearestProjectTeammatesDir(cwd: string): string | null {
@@ -95,18 +159,22 @@ export function findNearestProjectTeammatesDir(cwd: string): string | null {
 	}
 }
 
-function loadTeammatesFromDir(dir: string, source: TeammateSource): TeammateConfig[] {
-	if (!isDirectory(dir)) return [];
+function loadTeammatesFromDir(
+	dir: string,
+	source: TeammateSource,
+): { teammates: TeammateConfig[]; warnings: string[] } {
+	if (!isDirectory(dir)) return { teammates: [], warnings: [] };
 	const teammates: TeammateConfig[] = [];
+	const warnings: string[] = [];
 	for (const filePath of collectMarkdownFiles(dir)) {
 		try {
 			const content = fs.readFileSync(filePath, "utf-8");
 			teammates.push(parseTeammateMarkdown(filePath, source, content));
-		} catch {
-			// Ignore invalid or unreadable teammate definitions.
+		} catch (error) {
+			warnings.push(`${path.basename(filePath)}: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
-	return teammates;
+	return { teammates, warnings };
 }
 
 function collectMarkdownFiles(dir: string): string[] {

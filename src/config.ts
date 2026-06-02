@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { TeammatesContextConfig } from "./context-transfer.ts";
@@ -56,12 +56,55 @@ const TEAMMATES_KEYS = [
 	"context",
 ] as const;
 
-const TEAMMATES_CONTEXT_KEYS = ["models", "summaryModels", "handoffModels"] as const;
+const TEAMMATES_CONTEXT_KEYS = [
+	"models",
+	"summaryModels",
+	"handoffModels",
+	"summarySystemPrompt",
+	"handoffSystemPrompt",
+	"contextMaxChars",
+] as const;
+
+// ─── mtime-based config cache ────────────────────────────────────────────────
+
+interface ConfigCacheEntry {
+	result: LoadedTeammatesConfig;
+	mtimes: Record<string, number>;
+}
+const _configCache = new Map<string, ConfigCacheEntry>();
+
+function getSettingsMtimes(cwd: string, agentDir: string): Record<string, number> {
+	const paths = [join(agentDir, "settings.json"), join(cwd, ".pi", "settings.json")];
+	const mtimes: Record<string, number> = {};
+	for (const p of paths) {
+		try {
+			mtimes[p] = statSync(p).mtimeMs;
+		} catch {
+			mtimes[p] = 0;
+		}
+	}
+	return mtimes;
+}
+
+function mtimesEqual(a: Record<string, number>, b: Record<string, number>): boolean {
+	const keysA = Object.keys(a);
+	if (keysA.length !== Object.keys(b).length) return false;
+	return keysA.every((k) => a[k] === b[k]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function loadTeammatesConfig(
 	cwd: string,
 	agentDir = getAgentDir(),
 ): LoadedTeammatesConfig {
+	const currentMtimes = getSettingsMtimes(cwd, agentDir);
+	const cacheKey = `${agentDir}::${cwd}`;
+	const cached = _configCache.get(cacheKey);
+	if (cached && mtimesEqual(cached.mtimes, currentMtimes)) {
+		return cached.result;
+	}
+
 	const manager = SettingsManager.create(cwd, agentDir);
 	const globalSettings = normalizeConfigAliases(manager.getGlobalSettings()) as {
 		teammates?: Record<string, unknown>;
@@ -77,12 +120,14 @@ export function loadTeammatesConfig(
 		{ teammates: pickKnown(projectSettings.teammates, TEAMMATES_KEYS) },
 	);
 
-	return {
+	const result: LoadedTeammatesConfig = {
 		config: {
 			teammates: sanitizeTeammatesSettings(merged.teammates),
 		},
 		sources: settingsSources(cwd, agentDir),
 	};
+	_configCache.set(cacheKey, { result, mtimes: currentMtimes });
+	return result;
 }
 
 function sanitizeTeammatesSettings(value: TeammatesSettingsConfig): TeammatesSettingsConfig {
@@ -114,11 +159,23 @@ function sanitizeTeammatesSettings(value: TeammatesSettingsConfig): TeammatesSet
 
 function sanitizeContextConfig(value: unknown): TeammatesContextConfig {
 	const context = pickKnown(value, TEAMMATES_CONTEXT_KEYS);
-	return {
+	const result: TeammatesContextConfig = {
 		models: sanitizeStringList(context.models),
 		summaryModels: sanitizeStringList(context.summaryModels),
 		handoffModels: sanitizeStringList(context.handoffModels),
 	};
+	const summaryPrompt = typeof context.summarySystemPrompt === "string" ? context.summarySystemPrompt.trim() : "";
+	if (summaryPrompt) result.summarySystemPrompt = summaryPrompt;
+	const handoffPrompt = typeof context.handoffSystemPrompt === "string" ? context.handoffSystemPrompt.trim() : "";
+	if (handoffPrompt) result.handoffSystemPrompt = handoffPrompt;
+	if (
+		typeof context.contextMaxChars === "number" &&
+		Number.isInteger(context.contextMaxChars) &&
+		context.contextMaxChars > 0
+	) {
+		result.contextMaxChars = context.contextMaxChars;
+	}
+	return result;
 }
 
 function sanitizeToolAliases(value: unknown): Record<string, string[]> {
@@ -134,10 +191,16 @@ function sanitizeToolAliases(value: unknown): Record<string, string[]> {
 
 function sanitizeStringList(value: unknown): string[] {
 	if (!Array.isArray(value)) return [];
-	return value
-		.filter((item): item is string => typeof item === "string")
-		.map((item) => item.trim())
-		.filter((item, index, list) => item.length > 0 && list.indexOf(item) === index);
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (const item of value) {
+		if (typeof item !== "string") continue;
+		const trimmed = item.trim();
+		if (!trimmed || seen.has(trimmed)) continue;
+		seen.add(trimmed);
+		result.push(trimmed);
+	}
+	return result;
 }
 
 function positiveIntegerOrDefault(value: unknown, fallback: number): number {

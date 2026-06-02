@@ -70,7 +70,26 @@
       // When empty, `context.models` is used instead.
       "handoffModels": [
         "deepseek/deepseek-v4-pro"
-      ]
+      ],
+
+      // default: builtin prompt
+      // values: string
+      // Optional override for the system prompt used when generating `summary` context packets.
+      // Leave unset to use the builtin context-transfer prompt.
+      // "summarySystemPrompt": "You are a context transfer assistant...",
+
+      // default: builtin prompt
+      // values: string
+      // Optional override for the system prompt used when generating `handoff` context packets.
+      // Leave unset to use the builtin handoff prompt.
+      // "handoffSystemPrompt": "You are a task handoff assistant...",
+
+      // default: unset (no truncation)
+      // values: positive integer char count
+      // When set, the serialized conversation is truncated to this many characters
+      // (keeping the most recent content) before being sent to the context model.
+      // Bounds cost and avoids input-limit failures on very long sessions.
+      "contextMaxChars": 120000
     }
   }
 

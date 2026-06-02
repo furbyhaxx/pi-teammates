@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Added optional `teammates.context.summarySystemPrompt` and `handoffSystemPrompt` settings for overriding the builtin context-transfer prompts.
+- Added optional `teammates.context.contextMaxChars` setting that truncates the serialized conversation (keeping the most recent content) before sending it to the context-generation model, bounding cost and avoiding input-limit failures on long sessions.
+- Added a `source` field to persisted teammate job records so resumed sessions display the correct user/project scope instead of `(unknown)`.
+- Added a `warnings` list to teammate discovery results so malformed teammate files surface as visible warnings (in the delegate tool output and the `/team:manage` footer) instead of being silently dropped.
 - Added `recruiting-teammates` skill covering both user-requested and agent-autonomous teammate creation, including a requirements interview, teammate spec design guide, file placement, and a test-delegation validation loop. Registered `./skills` in the pi package manifest so the skill ships with the extension.
 - Added the `delegate` tool with single, parallel, and chained teammate execution.
 - Added scoped teammate discovery from `${PI_CODING_AGENT_DIR}/teammates/**/*.md` and nearest ancestor `.pi/teammates/**/*.md` directories.
@@ -39,3 +43,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Updated delegate result rendering to display the child session's effective model plus thinking level instead of dropping the `:thinking` suffix from live TUI output.
 - Propagated the effective child model/thinking label into `/team:status` job details, manual delegation transcript summaries, and the final `delegate` tool content returned to the calling agent.
 - Reworked `/team:status` and `/team:manage` overlays to use responsive large-modal sizing, tall content-padded desktop heights, and adaptive column widths instead of the default narrow centered overlay.
+- Reworked the `delegate` tool description, prompt guidelines, and the injected delegation-policy block to lead with decompose-then-batch and parallel-first delegation, discouraging the common anti-pattern of sequential single delegations for independent work.
+- Added each teammate's configured default context mode as a `context` attribute on its `<member>` entry in the injected team prompt, so the calling agent picks context modes deliberately.
+- Routed `team:delegate --improve` task refinement through the compaction-aware context path so compacted sessions feed complete history into the rewriter.
+
+### Performance
+
+- Added mtime-based caches to teammate config loading and teammate discovery so settings and teammate files are no longer re-read on every agent turn and delegate call; caches invalidate automatically when the underlying files change.
+- Cached teammate discovery for the lifetime of the `/team:manage` overlay component instead of re-scanning the filesystem on every render frame.
+- Replaced O(n²) `indexOf`-based deduplication with `Set`-based O(n) deduplication across string-list helpers.
+
+### Fixed
+
+- Fixed a variable-shadowing bug in the resume flow where the error path reported a stale job record, losing in-flight model and status updates.
+- Fixed `summary`/`handoff` context generation silently dropping pre-compaction messages when a compaction marker's `firstKeptEntryId` was not found.
+- Fixed the teammate manager validating edited project teammates with the wrong scope label.
+- Replaced a full-file read used only for existence checks with a lightweight `access()` probe.
+
+### Removed
+
+- Removed the unused subprocess-based delegation helpers (`buildDelegateProcessPlan`, `copySessionFileToTemp`, `TEAMMATES_CURRENT_ENV`) superseded by the SDK-based `createAgentSession` flow.

@@ -500,6 +500,7 @@ async function runSingleTeammate(args: {
 			childSessionId,
 			childSessionPath,
 			teammateName: teammate.name,
+			source: teammate.source,
 			task: args.task,
 			contextMode,
 			cwd: childCwd,
@@ -678,7 +679,7 @@ async function resumeTeammateSession(args: {
 }): Promise<SingleResult> {
 	const result: SingleResult = {
 		teammate: args.job.teammateName,
-		teammateSource: "unknown",
+		teammateSource: args.job.source ?? "unknown",
 		task: args.job.task,
 		contextMode: args.job.contextMode,
 		jobId: args.job.jobId,
@@ -749,7 +750,6 @@ async function resumeTeammateSession(args: {
 		});
 
 		const childSession = sessionHandle.session;
-		let currentJobRecord = args.job;
 		const updateEffectiveModel = () => {
 			const resolvedModel = formatResolvedModelLabel(childSession.model, childSession.thinkingLevel);
 			if (!resolvedModel) return;
@@ -860,7 +860,7 @@ const ChainItem = Type.Object({
 
 const ContextModeSchema = StringEnum(TEAMMATE_CONTEXT_MODES, {
 	description:
-		"Context strategy override for this delegate call. new = fresh task only. inherit = continue from the caller's exact session context. summary = fresh context plus a generated task-focused summary. handoff = fresh context plus a generated task handoff packet.",
+		"Context strategy override for this delegate call. new = task only (default, use for self-contained tasks). summary = fresh session plus a generated task-focused context summary (use when the teammate needs session background). handoff = fresh session plus a generated execution-oriented handoff packet (use for one specific next-step task). inherit = exact caller session clone (use only when transcript continuity is truly required). Omit to use the teammate's configured default, which is shown in the <team> block.",
 });
 
 const DelegateParamsSchema = Type.Object({
@@ -1164,23 +1164,26 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 		name: "delegate",
 		label: "Delegate",
 		description: [
-			"Delegate bounded execution work to one configured teammate, several teammates in parallel, or a sequential teammate chain, each running in its own isolated internal Pi session.",
-			"Use it when specialization, a fresh context window, or parallelism will materially improve the result.",
-			"Do not use it for vague handoffs, open-ended 'think about this' requests, or work you can complete directly in the current session without losing quality.",
-			"`context` controls how much caller state the child receives: `new` = task only, `inherit` = exact caller transcript/session state, `summary` = fresh session plus generated task-focused summary, `handoff` = fresh session plus generated execution-oriented handoff packet.",
-			"If `context` is omitted, the teammate's configured default is used, and that default is `new` unless the teammate explicitly sets another mode.",
-			"`resumeSessionId` resumes a previously interrupted teammate run and should be used instead of starting a new one when you already have the child session id.",
-			"Returns the teammate's final output plus structured execution details, including child session ids needed for status and resume flows, and streams progress while work is running.",
+			"Delegate bounded execution work to configured teammates in isolated Pi sessions.",
+			"Use `tasks` (parallel array) whenever you have two or more independent subtasks — parallel runs all tasks concurrently at zero additional wall-clock cost and is the correct default for independent work.",
+			"Use `chain` for sequential pipelines where each step uses `{previous}` output from the prior step.",
+			"Use single (`teammate`+`task`) only for a single isolated subtask.",
+			"Use it when specialization, a fresh context window, or parallelism will materially improve the result; do not use for vague requests or work you can complete inline without quality loss.",
+			"`context` controls how much caller state each child receives: `new` = task only, `summary` = fresh session plus generated task-focused context summary, `handoff` = fresh session plus execution-oriented handoff packet, `inherit` = exact caller session clone.",
+			"If `context` is omitted the teammate's configured default is used (`new` unless overridden in the teammate file).",
+			"`resumeSessionId` resumes an interrupted teammate run; do not combine with new task parameters.",
+			"Streams progress while running and returns each teammate's final output with session IDs for status and resume flows.",
 		].join(" "),
 		promptSnippet: "Delegate bounded execution work to configured teammates in isolated internal Pi sessions.",
 		promptGuidelines: [
-			"Use `delegate` only after you have decided the actual subtask; delegate execution, not judgment.",
-			"In every delegated task, state the concrete goal, relevant files or symbols, key constraints or risks, and the expected output.",
-			"Prefer `context=new` for self-contained tasks and `context=summary` for fresh specialists that need broader background without the full transcript.",
-			"Use `context=handoff` for one specific next-step execution brief; use `context=inherit` only when exact transcript continuity is required.",
-			"Use parallel tasks only for independent workstreams; use chain steps only when later steps truly depend on earlier output, and use `{previous}` deliberately.",
-			"Use `resumeSessionId` only to continue an existing interrupted child session; do not combine it with single, parallel, or chain task creation.",
-			"After the teammate returns, synthesize or route the result yourself instead of assuming the child owns the overall conversation.",
+			"Decompose work before calling delegate: identify all independent workstreams and sequential dependencies, then batch them into one call — N independent tasks into one `tasks` call (parallel), a sequential pipeline into one `chain` call.",
+			"Never make multiple sequential delegate calls for independent subtasks — use `tasks` instead. Sequential delegation wastes wall-clock time and is the most common misuse of this tool.",
+			"Use `delegate` only after you have decided the actual subtask; delegate execution, not judgment — decide the real work yourself first.",
+			"In every delegated task, include the concrete goal, relevant files or symbols, key constraints or risks, and the expected output format.",
+			"Prefer `context=new` for self-contained tasks; use `context=summary` when the teammate needs broader session background; use `context=handoff` for one specific next-step execution brief; use `context=inherit` only when exact transcript continuity is truly required.",
+			"In chain tasks, use `{previous}` deliberately: only include it when the step genuinely depends on the prior output — do not copy it by default.",
+			"Use `resumeSessionId` only to continue an existing interrupted child session; do not combine with new task parameters.",
+			"After a teammate returns, synthesize or route the result yourself — do not assume the child owns the overall conversation.",
 		],
 		parameters: DelegateParamsSchema,
 
@@ -1202,6 +1205,9 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 			const teammates = discovery.teammates.filter((teammate) =>
 				canDelegateToTeammate({ targetName: teammate.name, lineage }),
 			);
+			const discoveryWarningNote = discovery.warnings.length > 0
+				? `\n\n[Warning: ${discovery.warnings.length} teammate file(s) skipped due to parse errors: ${discovery.warnings.join("; ")}]`
+				: "";
 
 			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
@@ -1223,7 +1229,7 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 					content: [
 						{
 							type: "text",
-							text: `Invalid parameters. Provide exactly one mode. Available teammates: ${formatAvailableTeammates(teammates)}`,
+							text: `Invalid parameters. Provide exactly one mode: single (teammate+task), parallel (tasks array), chain (chain array), or resume (resumeSessionId). Available teammates: ${formatAvailableTeammates(teammates)}${discoveryWarningNote}`,
 						},
 					],
 					details: makeDetails("single")([]),

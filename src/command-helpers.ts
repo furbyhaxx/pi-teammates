@@ -1,6 +1,7 @@
 import { complete, type Model } from "@earendil-works/pi-ai";
 import type { ModelRegistry, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { convertToLlm, serializeConversation } from "@earendil-works/pi-coding-agent";
+import { getContextTransferMessages } from "./context-transfer.ts";
 
 export interface ParsedTeamCommandArgs {
 	agent?: string;
@@ -98,11 +99,7 @@ export async function improveDelegationTask(args: {
 	}
 
 	const conversationText = serializeConversation(
-		convertToLlm(
-			args.branch
-				.filter((entry): entry is Extract<SessionEntry, { type: "message" }> => entry.type === "message")
-				.map((entry) => entry.message),
-		),
+		convertToLlm(getContextTransferMessages(args.branch)),
 	);
 
 	const prompt = buildImproveDelegationPrompt({

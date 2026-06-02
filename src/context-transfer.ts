@@ -11,6 +11,12 @@ export interface TeammatesContextConfig {
 	models: string[];
 	summaryModels: string[];
 	handoffModels: string[];
+	/** Override the system prompt used when generating `summary` context packets. */
+	summarySystemPrompt?: string;
+	/** Override the system prompt used when generating `handoff` context packets. */
+	handoffSystemPrompt?: string;
+	/** Truncate the serialized conversation to this many characters before sending to the context model. Keeps the most recent content. */
+	contextMaxChars?: number;
 }
 
 export interface ParsedContextModelRef {
@@ -173,11 +179,16 @@ export function buildDelegatedUserTask(args: {
 }
 
 export async function generateDelegationContext(args: GenerateDelegationContextArgs): Promise<string> {
-	const conversationText = serializeConversation(
+	let conversationText = serializeConversation(
 		convertToLlm(getContextTransferMessages(args.branch)),
 	);
 	if (!conversationText.trim()) {
 		throw new Error(`Cannot generate ${args.mode} context: no conversation history available.`);
+	}
+
+	if (args.contextConfig.contextMaxChars && conversationText.length > args.contextConfig.contextMaxChars) {
+		const omitted = conversationText.length - args.contextConfig.contextMaxChars;
+		conversationText = `[Conversation truncated: ${omitted} chars omitted from the beginning]\n\n${conversationText.slice(-args.contextConfig.contextMaxChars)}`;
 	}
 
 	const candidates = resolveGenerationCandidates({
@@ -190,7 +201,11 @@ export async function generateDelegationContext(args: GenerateDelegationContextA
 		throw new Error(`Cannot generate ${args.mode} context: no usable models configured and no current session model available.`);
 	}
 
-	const systemPrompt = args.mode === "handoff" ? HANDOFF_SYSTEM_PROMPT : SUMMARY_SYSTEM_PROMPT;
+	const systemPrompt =
+		args.mode === "handoff"
+			? (args.contextConfig.handoffSystemPrompt ?? HANDOFF_SYSTEM_PROMPT)
+			: (args.contextConfig.summarySystemPrompt ?? SUMMARY_SYSTEM_PROMPT);
+
 	const promptText = [
 		`## Conversation History\n\n${conversationText}`,
 		`## Delegated Task\n\n${args.task}`,
@@ -279,7 +294,7 @@ function resolveGenerationCandidates(args: {
 	return uniqueBy([...configuredCandidates, ...fallback], (candidate) => candidate.label);
 }
 
-function getContextTransferMessages(branch: SessionEntry[]): AgentMessage[] {
+export function getContextTransferMessages(branch: SessionEntry[]): AgentMessage[] {
 	let compactionIndex = -1;
 	for (let i = branch.length - 1; i >= 0; i--) {
 		if (branch[i].type === "compaction") {
@@ -294,6 +309,9 @@ function getContextTransferMessages(branch: SessionEntry[]): AgentMessage[] {
 	const compaction = branch[compactionIndex];
 	const firstKeptIndex =
 		compaction.type === "compaction" ? branch.findIndex((entry) => entry.id === compaction.firstKeptEntryId) : -1;
+
+	// When firstKeptEntryId is not found, fall back to compaction + everything after it.
+	// The compaction summary itself captures what was dropped.
 	const compactedBranch = [
 		compaction,
 		...(firstKeptIndex >= 0 ? branch.slice(firstKeptIndex, compactionIndex) : []),
