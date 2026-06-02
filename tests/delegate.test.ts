@@ -99,6 +99,7 @@ assert.equal(
 		'<delegation_policy>',
 		'Decompose work before calling delegate: identify all independent workstreams and sequential dependencies, then batch them into one call — N independent tasks into one `tasks` call (parallel), a sequential pipeline into one `chain` call.',
 		'Never make multiple sequential delegate calls for independent subtasks. Use `tasks` to run them in parallel — parallel costs zero extra wall-clock time and is the default mode for independent work.',
+		'If you are about to emit more than one delegate call for subtasks that do not depend on each other, collapse them into a single `tasks` call instead — multiple delegate calls in one turn for independent work is the same mistake as making them sequentially.',
 		'Use delegation only for bounded execution tasks where specialization, isolation, or parallelism clearly helps.',
 		'Do not delegate when you can complete the work directly from the current context without losing quality.',
 		'Delegate execution, not judgment. Decide the real task yourself before calling `delegate`.',

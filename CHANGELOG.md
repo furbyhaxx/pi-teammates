@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Added a copy-pastable `examples/settings.json` (comment-free) alongside the annotated `examples/settings.jsonc` for pasting straight into a real Pi `settings.json`.
+- Added an `eval/` delegation-routing A/B harness (and README) that measures whether the delegation prompt wording improves routing decisions, comparing the current wording head-to-head against the previous wording on fixed scenarios.
 - Added optional `teammates.context.summarySystemPrompt` and `handoffSystemPrompt` settings for overriding the builtin context-transfer prompts.
 - Added optional `teammates.context.contextMaxChars` setting that truncates the serialized conversation (keeping the most recent content) before sending it to the context-generation model, bounding cost and avoiding input-limit failures on long sessions.
 - Added a `source` field to persisted teammate job records so resumed sessions display the correct user/project scope instead of `(unknown)`.
@@ -43,7 +45,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Updated delegate result rendering to display the child session's effective model plus thinking level instead of dropping the `:thinking` suffix from live TUI output.
 - Propagated the effective child model/thinking label into `/team:status` job details, manual delegation transcript summaries, and the final `delegate` tool content returned to the calling agent.
 - Reworked `/team:status` and `/team:manage` overlays to use responsive large-modal sizing, tall content-padded desktop heights, and adaptive column widths instead of the default narrow centered overlay.
-- Reworked the `delegate` tool description, prompt guidelines, and the injected delegation-policy block to lead with decompose-then-batch and parallel-first delegation, discouraging the common anti-pattern of sequential single delegations for independent work.
+- Reworked the `delegate` tool description, prompt guidelines, and the injected delegation-policy block to lead with decompose-then-batch and parallel-first delegation, discouraging the common anti-pattern of sequential single delegations for independent work. Added an explicit "collapse multiple delegate calls into one `tasks` call" instruction after an A/B evaluation showed agents still occasionally emitting several single calls in one turn for independent subtasks. On the eval's clean scenario set the new wording lifted parallel-routing quality from 0.27 to 0.59 (deepseek-v4-flash, N=5/cell) with no regression to single, chain, or no-delegation routing.
 - Added each teammate's configured default context mode as a `context` attribute on its `<member>` entry in the injected team prompt, so the calling agent picks context modes deliberately.
 - Routed `team:delegate --improve` task refinement through the compaction-aware context path so compacted sessions feed complete history into the rewriter.
 

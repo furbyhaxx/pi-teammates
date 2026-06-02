@@ -1178,6 +1178,7 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 		promptGuidelines: [
 			"Decompose work before calling delegate: identify all independent workstreams and sequential dependencies, then batch them into one call — N independent tasks into one `tasks` call (parallel), a sequential pipeline into one `chain` call.",
 			"Never make multiple sequential delegate calls for independent subtasks — use `tasks` instead. Sequential delegation wastes wall-clock time and is the most common misuse of this tool.",
+			"If you are about to emit more than one delegate call for subtasks that do not depend on each other, collapse them into a single `tasks` call — multiple delegate calls in one turn for independent work is the same mistake as making them sequentially.",
 			"Use `delegate` only after you have decided the actual subtask; delegate execution, not judgment — decide the real work yourself first.",
 			"In every delegated task, include the concrete goal, relevant files or symbols, key constraints or risks, and the expected output format.",
 			"Prefer `context=new` for self-contained tasks; use `context=summary` when the teammate needs broader session background; use `context=handoff` for one specific next-step execution brief; use `context=inherit` only when exact transcript continuity is truly required.",
