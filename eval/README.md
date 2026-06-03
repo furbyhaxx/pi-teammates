@@ -76,3 +76,40 @@ Per-scenario highlights:
    guidelines.
 
 Raw run logs are git-ignored (regenerable); re-run the harness to reproduce.
+
+## Real multi-turn validation (`pi -p --mode json`)
+
+The harness above is single-turn (it captures the model's first response). To confirm the routing
+gains survive the **real agent loop** — where the orchestrator actually executes delegations across
+turns — five live runs were done against this repo with the teammates extension loaded.
+`scan-real-run.py` extracts the delegate calls (and their mode) from the JSON event stream.
+
+| run | scenario | orchestrator | result |
+|---|---|---|---|
+| 1 | summarize 3 named files (natural phrasing) | deepseek-v4-flash:high | **no delegation** — read the 3 files itself (correct restraint; trivial work) |
+| 2a | audit 3 modules (natural phrasing) | deepseek-v4-flash:high | self-handled / single — never the sequential anti-pattern |
+| 2b | audit 3 modules (delegation forced) | deepseek-v4-flash:high | **one `tasks[3]` parallel call → reviewer ×3** ✓ |
+| 2c | audit 3 modules (delegation forced) | github-copilot/gpt-5.5 | **one `tasks[…]` parallel call → reviewer per file** ✓ (holds on a stronger orchestrator) |
+| 3 | 2-step dependent pipeline (forced) | deepseek-v4-flash:high | **one `chain[2]` call → scout → reviewer, step 2 uses `{previous}`** ✓ |
+
+Takeaways:
+
+- The single-turn prediction holds in production: when delegating genuinely independent work, the
+  orchestrator emits **one batched `tasks` call** rather than several sequential single calls — on
+  both a mid-tier and a stronger orchestrator.
+- Restraint also holds: on trivial/natural-phrasing work the orchestrator does it inline rather than
+  over-delegating.
+- `chain` + `{previous}` routes correctly for genuinely dependent pipelines.
+
+### ⚠️ Operational finding: `--mode json` output blowup with parallel children
+
+One uncapped parallel run produced an **11 GB** JSON stream and OOM-crashed Node. Cause: the extension
+streams the full accumulated child message array via `onUpdate` on every child event, and pi's `json`
+mode re-serializes that growing payload on each `message_update` — roughly O(updates × transcript
+size), which explodes when several verbose children stream concurrently. The TUI hides this (it
+truncates on render), but the underlying per-update payload still grows.
+
+This is a real efficiency issue worth a follow-up: throttle/coalesce `onUpdate`, or stream a truncated
+preview / delta instead of the full child transcript. Until then, capture live `--mode json` runs
+through a byte cap (`… | head -c 6000000`) so the turn-1 routing decision is recorded before the
+stream balloons — which is how the runs above were captured safely.
