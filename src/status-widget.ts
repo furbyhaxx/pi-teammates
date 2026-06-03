@@ -104,7 +104,7 @@ async function showJobDetails(ctx: ExtensionCommandContext, job: TeammateJobReco
 					...paddedLines.map(row),
 					theme.fg("accent", `└${"─".repeat(Math.max(0, inner))}┘`),
 					theme.fg("dim", "Enter or Esc to close"),
-				];
+				].map((line) => truncateToWidth(line, width));
 			},
 			invalidate() {},
 			handleInput(data: string) {
