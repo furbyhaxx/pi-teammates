@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
-import {
-	collectInterruptedTeammateJobs,
-	collectLatestTeammateJobs,
-	createTeammateJobRecord,
-	TEAMMATE_JOB_CUSTOM_TYPE,
-	updateTeammateJobRecord,
-} from "../src/job-registry.ts";
+import { collectInterruptedTeammateJobs, collectLatestTeammateJobs } from "../src/jobs/queries.ts";
+import { createTeammateJobRecord, updateTeammateJobRecord } from "../src/jobs/records.ts";
+import { TEAMMATE_JOB_CUSTOM_TYPE } from "../src/jobs/types.ts";
 
 const running = createTeammateJobRecord({
 	jobId: "job-1",

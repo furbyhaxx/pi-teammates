@@ -2,10 +2,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	discoverTeammates,
-	parseTeammateMarkdown,
-} from "../src/teammates.ts";
+import { discoverTeammates } from "../src/teammates/discover.ts";
+import { parseTeammateMarkdown } from "../src/teammates/parse.ts";
 
 const parsed = parseTeammateMarkdown(
 	join("/tmp", "ScoutAgent.md"),

@@ -38,7 +38,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Resolved the post-refactor cleanup pass by sharing delegate child-session runtime setup, extracting the remaining `team:status` workflow, introducing shared command-context typing, and removing legacy compatibility barrels in favor of direct domain imports.
+- Updated the delegate test model-label helper import to use the direct delegate domain module.
+- Removed legacy root compatibility barrels in favor of direct domain imports across internal modules and tests.
+- Narrowed the shared delegate child-session runtime API so fresh and resumed runners own teammate job persistence directly.
+- Shared delegate child-session runtime setup between fresh and resumed teammate sessions while preserving runner behavior.
+- Extracted the `/team:status` workflow into a command module and introduced shared command-context typing while preserving command behavior.
+- Refined the domain module map to reflect the current entrypoint compatibility export plus the commands and shared helper domains.
+- Refactored production TypeScript into focused domain modules while preserving `delegate`, command, teammate discovery, context-transfer, job persistence, and TUI behavior.
+- Split teammate overlay layout, manager, and status UI internals into focused UI modules while preserving behavior.
+- Split teammate discovery, builtin teammate helpers, teammate state/policy/process helpers, and job registry internals into focused domain modules while preserving behavior.
+- Split config loading, defaults, sanitization, merge helpers, and cache internals into focused config modules while preserving behavior.
+- Dropped out-of-scope context index assertions from the context-transfer test while keeping the context-module split intact.
+- Split context-transfer internals into focused context modules; the temporary root compatibility barrel was removed in the later cleanup pass.
+- Extracted slash command handlers and extension event registration into focused command/extension modules while preserving behavior.
+- Tightened extracted delegate execution typing, made delegate parameters derive from the TypeBox schema, and moved teammate job lookup into the job registry while preserving behavior.
+- Extracted delegate schema, execution routing, and tool registration into focused delegate/extension modules while preserving existing behavior.
+- Extracted delegate session runner primitives and teammate resume logic into focused delegate modules while preserving existing behavior.
+- Extracted delegate rendering formatters and render hooks into focused delegate render modules while preserving existing behavior.
+- Extracted shared delegate result types, model resolution, output formatting, and display item helpers into focused delegate modules while preserving existing behavior.
 - Documented the approved domain-first modularization design and implementation plan for a behavior-preserving refactor of the extension internals.
+- Documented the approved post-refactor cleanup design and implementation plan covering shared runtime setup, command extraction, and compatibility-barrel removal.
 - Reworked collapsed `delegate` TUI rendering for single, parallel, and chain modes into tree-style teammate rows with persistent goal lines, richer live usage/model metadata, cleaner done/error status rows, and less duplicated task preview noise.
 - Moved teammate delegation enablement into the teammate `tools` map as `tools.delegate` instead of a separate top-level frontmatter key.
 - Updated all example teammate files to use the stronger project-style PascalCase teammate profiles, which now also serve as the builtin fallback roster.
@@ -63,6 +83,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- Reconciled the domain cleanup documentation with the remaining root-level command helper and removed context-transfer barrel.
 - Fixed teammate discovery rejecting PascalCase names; teammate names may now use uppercase and lowercase letters, numbers, and hyphens.
 - Fixed npm package contents omitting `skills/`, which prevented the packaged `recruiting-teammates` skill from being exposed on npm installs.
 - Fixed `/team:manage` warning UX to show skipped-file reasons instead of only a count.
@@ -75,4 +96,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Removed
 
+- Removed unused resume-runner config plumbing left over from the modularization.
+- Removed an unused delegate render constant left over from the rendering extraction.
 - Removed the unused subprocess-based delegation helpers (`buildDelegateProcessPlan`, `copySessionFileToTemp`, `TEAMMATES_CURRENT_ENV`) superseded by the SDK-based `createAgentSession` flow.

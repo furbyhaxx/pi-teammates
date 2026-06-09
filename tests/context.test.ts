@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
-import {
-	buildDelegatedUserTask,
-	parseContextModelRef,
-	parseTeammateContextMode,
-	resolveConfiguredContextModelRefs,
-	selectContextMode,
-} from "../src/context-transfer.ts";
+import { buildDelegatedUserTask } from "../src/context/generate.ts";
+import { parseContextModelRef, resolveConfiguredContextModelRefs } from "../src/context/model-refs.ts";
+import { parseTeammateContextMode, selectContextMode } from "../src/context/modes.ts";
 
 assert.equal(parseTeammateContextMode(undefined), "new");
 assert.equal(parseTeammateContextMode("inherit"), "inherit");

@@ -1,33 +1,4 @@
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { TeammateContextMode } from "./context-transfer.ts";
-import type { TeammatePromptMode } from "./teammates.ts";
-
-export const TEAMMATE_JOB_CUSTOM_TYPE = "pi-teammates/job";
-
-export type TeammateJobStatus = "running" | "completed" | "failed" | "aborted" | "interrupted";
-
-export interface TeammateJobRecord {
-	jobId: string;
-	parentSessionId: string;
-	parentSessionFile?: string;
-	childSessionId: string;
-	childSessionPath: string;
-	teammateName: string;
-	/** Whether this teammate came from user, project, or builtin scope. */
-	source?: "user" | "project" | "builtin";
-	task: string;
-	contextMode: TeammateContextMode;
-	cwd: string;
-	toolNames: string[];
-	disableAllTools: boolean;
-	skills: string[];
-	promptMode: TeammatePromptMode;
-	systemPrompt: string;
-	status: TeammateJobStatus;
-	model?: string;
-	createdAt: string;
-	updatedAt: string;
-}
+import type { TeammateJobRecord, TeammateJobRecordInput, TeammateJobStatus } from "./types.ts";
 
 export function createTeammateJobRecord(args: {
 	jobId: string;
@@ -38,12 +9,12 @@ export function createTeammateJobRecord(args: {
 	teammateName: string;
 	source?: "user" | "project" | "builtin";
 	task: string;
-	contextMode: TeammateContextMode;
+	contextMode: TeammateJobRecord["contextMode"];
 	cwd: string;
 	toolNames: string[];
 	disableAllTools: boolean;
 	skills?: string[];
-	promptMode: TeammatePromptMode;
+	promptMode: TeammateJobRecord["promptMode"];
 	systemPrompt: string;
 	status: TeammateJobStatus;
 	model?: string;
@@ -86,39 +57,14 @@ export function updateTeammateJobRecord(
 	};
 }
 
-export function collectLatestTeammateJobs(entries: SessionEntry[]): Map<string, TeammateJobRecord> {
-	const jobs = new Map<string, TeammateJobRecord>();
-	for (const entry of entries) {
-		if (entry.type !== "custom" || entry.customType !== TEAMMATE_JOB_CUSTOM_TYPE) continue;
-		const data = isTeammateJobRecord(entry.data) ? normalizeJobRecord(entry.data) : undefined;
-		if (!data) continue;
-		jobs.set(data.childSessionId, data);
-	}
-	return jobs;
-}
-
-export function collectInterruptedTeammateJobs(entries: SessionEntry[]): TeammateJobRecord[] {
-	return Array.from(collectLatestTeammateJobs(entries).values()).filter((record) => record.status === "running");
-}
-
-type TeammateJobRecordInput = Omit<TeammateJobRecord, "skills"> & { skills?: unknown };
-
-function normalizeJobRecord(record: TeammateJobRecordInput): TeammateJobRecord {
+export function normalizeJobRecord(record: TeammateJobRecordInput): TeammateJobRecord {
 	return {
 		...record,
 		skills: parseSkillNames(record.skills),
 	};
 }
 
-function parseSkillNames(value: unknown): string[] {
-	if (!Array.isArray(value)) return [];
-	return value
-		.filter((skill): skill is string => typeof skill === "string")
-		.map((skill) => skill.trim())
-		.filter((skill) => skill.length > 0);
-}
-
-function isTeammateJobRecord(value: unknown): value is TeammateJobRecordInput {
+export function isTeammateJobRecord(value: unknown): value is TeammateJobRecordInput {
 	if (!value || typeof value !== "object") return false;
 	const record = value as Record<string, unknown>;
 	return (
@@ -139,4 +85,12 @@ function isTeammateJobRecord(value: unknown): value is TeammateJobRecordInput {
 		typeof record.createdAt === "string" &&
 		typeof record.updatedAt === "string"
 	);
+}
+
+function parseSkillNames(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value
+		.filter((skill): skill is string => typeof skill === "string")
+		.map((skill) => skill.trim())
+		.filter((skill) => skill.length > 0);
 }

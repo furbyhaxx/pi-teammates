@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {
 	parseTeammatesLineage,
-} from "../src/delegate-process.ts";
+} from "../src/teammates/process.ts";
 
 assert.deepEqual(parseTeammatesLineage(undefined), []);
 assert.deepEqual(parseTeammatesLineage(""), []);

@@ -3,8 +3,8 @@ import {
 	buildTeamPromptBlock,
 	canDelegateToTeammate,
 	resolveTeammateToolNames,
-} from "../src/delegation-policy.ts";
-import { formatResolvedModelLabel } from "../src/index.ts";
+} from "../src/teammates/policy.ts";
+import { formatResolvedModelLabel } from "../src/delegate/model.ts";
 
 assert.deepEqual(
 	resolveTeammateToolNames({

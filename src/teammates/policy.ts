@@ -1,4 +1,4 @@
-import type { TeammateConfig } from "./teammates.ts";
+import type { TeammateConfig } from "./types.ts";
 
 export interface ResolveTeammateToolNamesArgs {
 	activeTools: string[];

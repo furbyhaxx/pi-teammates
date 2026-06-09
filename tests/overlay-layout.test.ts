@@ -8,7 +8,7 @@ import {
 	getVisibleWindow,
 	padRowsToCount,
 	padToVisibleWidth,
-} from "../src/overlay-layout.ts";
+} from "../src/ui/overlay-layout.ts";
 
 assert.deepEqual(buildResponsiveOverlayOptions(72), {
 	anchor: "center",

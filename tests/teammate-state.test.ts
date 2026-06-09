@@ -3,7 +3,7 @@ import {
 	createTeammateSessionState,
 	getLatestTeammateSessionState,
 	TEAMMATE_STATE_CUSTOM_TYPE,
-} from "../src/teammate-state.ts";
+} from "../src/teammates/state.ts";
 
 const state = createTeammateSessionState({
 	teammateName: "worker",

@@ -21,7 +21,7 @@ export interface EjectBuiltinTeammatesResult {
 }
 
 export function getBuiltinTeammatesDir(): string {
-	return fileURLToPath(new URL("../examples/teammates", import.meta.url));
+	return fileURLToPath(new URL("../../examples/teammates", import.meta.url));
 }
 
 export function getBuiltinTeammates(): BuiltinTeammateDefinition[] {

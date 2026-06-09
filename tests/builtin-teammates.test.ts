@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
 	ejectBuiltinTeammates,
 	getBuiltinTeammates,
-} from "../src/builtin-teammates.ts";
+} from "../src/teammates/builtins.ts";
 
 const builtins = getBuiltinTeammates();
 assert.deepEqual(

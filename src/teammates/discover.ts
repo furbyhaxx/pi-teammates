@@ -1,37 +1,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { getBuiltinTeammates, getBuiltinTeammatesDir } from "./builtin-teammates.ts";
-import { parseTeammateContextMode, type TeammateContextMode } from "./context-transfer.ts";
-
-export type TeammateSource = "user" | "project" | "builtin";
-export type TeammatePromptMode = "append" | "replace";
-
-export interface TeammateConfig {
-	name: string;
-	description: string;
-	tools?: Record<string, boolean>;
-	skills: string[];
-	model?: string;
-	contextMode: TeammateContextMode;
-	promptMode: TeammatePromptMode;
-	systemPrompt: string;
-	source: TeammateSource;
-	filePath: string;
-}
-
-export interface TeammateDiscoveryResult {
-	teammates: TeammateConfig[];
-	projectTeammatesDir: string | null;
-	usingBuiltins: boolean;
-	/** Paths of teammate files that failed to parse, with error messages. */
-	warnings: string[];
-}
-
-export interface DiscoverTeammatesOptions {
-	agentDir?: string;
-	loadProjectTeammates?: boolean;
-}
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getBuiltinTeammates, getBuiltinTeammatesDir } from "./builtins.ts";
+import { parseTeammateMarkdown } from "./parse.ts";
+import type {
+	DiscoverTeammatesOptions,
+	TeammateConfig,
+	TeammateDiscoveryResult,
+	TeammateSource,
+} from "./types.ts";
 
 // ─── mtime-based discovery cache ─────────────────────────────────────────────
 
@@ -75,36 +52,6 @@ function mtimesEqual(a: Record<string, number>, b: Record<string, number>): bool
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-
-export function parseTeammateMarkdown(
-	filePath: string,
-	source: TeammateSource,
-	content: string,
-): TeammateConfig {
-	const { frontmatter, body } = parseFrontmatter<Record<string, unknown>>(content);
-	const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
-	const description =
-		typeof frontmatter.description === "string" ? frontmatter.description.trim() : "";
-	if (!name || !description) {
-		throw new Error(`Invalid teammate file ${filePath}: missing name or description`);
-	}
-	if (!/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/.test(name)) {
-		throw new Error(`Invalid teammate file ${filePath}: teammate names must use letters, numbers, and hyphens only`);
-	}
-
-	return {
-		name,
-		description,
-		tools: parseToolToggles(frontmatter.tools),
-		skills: parseSkillNames(frontmatter.skills),
-		model: typeof frontmatter.model === "string" ? frontmatter.model.trim() || undefined : undefined,
-		contextMode: parseTeammateContextMode(frontmatter.context),
-		promptMode: frontmatter.prompt === "replace" ? "replace" : "append",
-		systemPrompt: body,
-		source,
-		filePath,
-	};
-}
 
 export function discoverTeammates(
 	cwd: string,
@@ -208,31 +155,10 @@ function collectMarkdownFiles(dir: string): string[] {
 	return files;
 }
 
-function parseToolToggles(value: unknown): Record<string, boolean> | undefined {
-	if (!isPlainObject(value)) return undefined;
-	const toggles: Record<string, boolean> = {};
-	for (const [toolName, enabled] of Object.entries(value)) {
-		if (typeof enabled === "boolean") toggles[toolName] = enabled;
-	}
-	return Object.keys(toggles).length > 0 ? toggles : undefined;
-}
-
-function parseSkillNames(value: unknown): string[] {
-	if (!Array.isArray(value)) return [];
-	return value
-		.filter((skill): skill is string => typeof skill === "string")
-		.map((skill) => skill.trim())
-		.filter((skill) => skill.length > 0);
-}
-
 function isDirectory(targetPath: string): boolean {
 	try {
 		return fs.statSync(targetPath).isDirectory();
 	} catch {
 		return false;
 	}
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
