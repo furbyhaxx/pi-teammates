@@ -16,6 +16,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { ejectBuiltinTeammates, type BuiltinEjectScope } from "./builtin-teammates.ts";
 import { loadTeammatesConfig, type TeammatesSettingsConfig } from "./config.ts";
 import {
 	buildDelegatedUserTask,
@@ -188,7 +189,7 @@ interface UsageStats {
 
 interface SingleResult {
 	teammate: string;
-	teammateSource: "user" | "project" | "unknown";
+	teammateSource: "user" | "project" | "builtin" | "unknown";
 	task: string;
 	contextMode?: TeammateContextMode;
 	jobId?: string;
@@ -226,6 +227,16 @@ function getFinalOutput(messages: Message[]): string {
 
 function isFailedResult(result: SingleResult): boolean {
 	return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
+}
+
+function isRunningResult(result: SingleResult): boolean {
+	if (result.status === "running") return true;
+	if (result.status) return false;
+	return result.exitCode === -1;
+}
+
+function isFinishedResult(result: SingleResult): boolean {
+	return !isRunningResult(result);
 }
 
 function getResultOutput(result: SingleResult): string {
@@ -1153,6 +1164,20 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 		},
 	});
 
+	pi.registerCommand("team:eject", {
+		description: "Copy builtin teammate templates into project or user scope as editable teammate files",
+		handler: async (commandArgs, ctx) => {
+			const tokens = commandArgs.split(/\s+/).map((token) => token.trim()).filter(Boolean);
+			const overwrite = tokens.includes("--overwrite");
+			const explicitScope = tokens.find((token): token is BuiltinEjectScope => token === "project" || token === "user");
+			const selectedScope = explicitScope ?? await ctx.ui.select("Eject builtin teammates to which scope?", ["project", "user"]);
+			if (selectedScope !== "project" && selectedScope !== "user") return;
+			const result = await ejectBuiltinTeammates({ cwd: ctx.cwd, scope: selectedScope, overwrite });
+			const skippedNote = result.skipped.length > 0 ? `, skipped ${result.skipped.length} existing file(s)` : "";
+			ctx.ui.notify(`Ejected ${result.created.length} builtin teammate(s) to ${result.targetDir}${skippedNote}`, "info");
+		},
+	});
+
 	pi.registerCommand("team:manage", {
 		description: "Open an interactive teammate manager for creating, editing, duplicating, and deleting teammate files",
 		handler: async (_args, ctx) => {
@@ -1392,8 +1417,8 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 
 				const emitParallelUpdate = () => {
 					if (!onUpdate) return;
-					const running = allResults.filter((result) => result.exitCode === -1).length;
-					const done = allResults.filter((result) => result.exitCode !== -1).length;
+					const running = allResults.filter(isRunningResult).length;
+					const done = allResults.filter(isFinishedResult).length;
 					onUpdate({
 						content: [{ type: "text", text: `Parallel: ${done}/${allResults.length} done, ${running} running...` }],
 						details: makeDetails("parallel")([...allResults]),
@@ -1508,54 +1533,18 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme) {
-			const RES = "⎿  ";
 			const contextSuffix = args.context ? theme.fg("dim", ` [${args.context}]`) : "";
+			const title = theme.fg("toolTitle", theme.bold("Delegate"));
+			const wrap = (label: string) =>
+				title + theme.fg("muted", "(") + theme.fg("accent", label) + theme.fg("muted", ")") + contextSuffix;
 
-			if (args.resumeSessionId) {
-				return new Text(
-					theme.fg("toolTitle", theme.bold("Delegate")) +
-					theme.fg("muted", "(") + theme.fg("accent", `resume ${args.resumeSessionId}`) + theme.fg("muted", ")"),
-					0, 0,
-				);
-			}
-			if (args.chain && args.chain.length > 0) {
-				let text =
-					theme.fg("toolTitle", theme.bold("Delegate")) +
-					theme.fg("muted", "(") + theme.fg("accent", `chain · ${args.chain.length} steps`) + theme.fg("muted", ")") +
-					contextSuffix;
-				for (let i = 0; i < Math.min(args.chain.length, 3); i++) {
-					const step = args.chain[i];
-					const cleanTask = step.task.replace(/\{previous\}/g, "").trim();
-					const preview = cleanTask.length > 40 ? `${cleanTask.slice(0, 40)}…` : cleanTask;
-					text += "\n" + theme.fg("muted", RES) + theme.fg("muted", `${i + 1}.`) + " " +
-						theme.fg("accent", step.teammate) + theme.fg("dim", ` ${preview}`);
-				}
-				if (args.chain.length > 3) text += "\n" + theme.fg("muted", `${RES}… +${args.chain.length - 3} more steps`);
-				return new Text(text, 0, 0);
-			}
-			if (args.tasks && args.tasks.length > 0) {
-				let text =
-					theme.fg("toolTitle", theme.bold("Delegate")) +
-					theme.fg("muted", "(") + theme.fg("accent", `${args.tasks.length} tasks`) + theme.fg("muted", ")") +
-					contextSuffix;
-				for (const taskItem of args.tasks.slice(0, 3)) {
-					const preview = taskItem.task.length > 40 ? `${taskItem.task.slice(0, 40)}…` : taskItem.task;
-					text += "\n" + theme.fg("muted", RES) + theme.fg("accent", taskItem.teammate) + theme.fg("dim", ` ${preview}`);
-				}
-				if (args.tasks.length > 3) text += "\n" + theme.fg("muted", `${RES}… +${args.tasks.length - 3} more`);
-				return new Text(text, 0, 0);
-			}
-			const teammateName = args.teammate || "…";
-			const preview = args.task ? (args.task.length > 60 ? `${args.task.slice(0, 60)}…` : args.task) : "…";
-			let text =
-				theme.fg("toolTitle", theme.bold("Delegate")) +
-				theme.fg("muted", "(") + theme.fg("accent", teammateName) + theme.fg("muted", ")") +
-				contextSuffix;
-			text += "\n" + theme.fg("muted", RES) + theme.fg("dim", preview);
-			return new Text(text, 0, 0);
+			if (args.resumeSessionId) return new Text(wrap(`resume ${args.resumeSessionId}`), 0, 0);
+			if (args.chain && args.chain.length > 0) return new Text(wrap(`chain · ${args.chain.length} steps`), 0, 0);
+			if (args.tasks && args.tasks.length > 0) return new Text(wrap(`${args.tasks.length} tasks`), 0, 0);
+			return new Text(wrap(args.teammate || "…"), 0, 0);
 		},
 
-		renderResult(result, { expanded }, theme) {
+		renderResult(result, { expanded }, theme, context) {
 			const details = result.details as DelegateDetails | undefined;
 			if (!details || details.results.length === 0) {
 				const text = result.content[0];
@@ -1564,7 +1553,6 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 
 			const mdTheme = getMarkdownTheme();
 			const RES = "⎿  ";
-			const IND = "     ";
 
 			const aggregateUsage = (results: SingleResult[]) => {
 				const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 0 };
@@ -1579,10 +1567,41 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 				return total;
 			};
 
+			const previewText = (value: string, maxLength: number): string => {
+				const singleLine = value.replace(/\{previous\}/g, "").replace(/\s+/g, " ").trim();
+				const withoutGoal = singleLine.replace(/^goal\s*:\s*/i, "");
+				return withoutGoal.length > maxLength ? `${withoutGoal.slice(0, maxLength)}…` : withoutGoal;
+			};
+
+			const formatGoal = (task: string): string =>
+				theme.fg("muted", "Goal: ") + theme.fg("dim", previewText(task, 78));
+
+			const formatResultHeader = (item: SingleResult, label = item.teammate): string => {
+				const usage = formatUsageStats(item.usage, item.model);
+				return theme.fg("accent", label) + (usage ? theme.fg("dim", `  · ${usage}`) : "");
+			};
+
+			const formatDoneStatus = (item: SingleResult): string => {
+				if (isFailedResult(item)) {
+					const reason = item.stopReason && item.stopReason !== "end" ? ` [${item.stopReason}]` : "";
+					return theme.fg("error", `Error${reason} ✗`);
+				}
+				return theme.fg("dim", "Done ") + theme.fg("success", "✓");
+			};
+
+			const recentToolCalls = (item: SingleResult, count: number) => {
+				const toolCalls = getDisplayItems(item.messages).filter((displayItem) => displayItem.type === "toolCall");
+				return { hiddenCount: Math.max(0, toolCalls.length - count), calls: toolCalls.slice(-count) };
+			};
+
+			const chainArgs = Array.isArray(context?.args?.chain)
+				? context.args.chain as Array<{ teammate?: string; task?: string }>
+				: undefined;
+
 			if (details.mode === "single" && details.results.length === 1) {
 				const single = details.results[0];
 				const isError = isFailedResult(single);
-				const isRunning = single.status === "running";
+				const isRunning = isRunningResult(single);
 				const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
 				const displayItems = getDisplayItems(single.messages);
 				const finalOutput = getFinalOutput(single.messages);
@@ -1623,47 +1642,36 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 					return container;
 				}
 
-				// Collapsed running state
+				let text = `${theme.fg("muted", "⎿ ")}${formatResultHeader(single)}`;
+				text += `\n  ${theme.fg("muted", "├  ")}${formatGoal(single.task)}`;
+
 				if (isRunning) {
-					const toolCalls = displayItems.filter((item) => item.type === "toolCall");
-					const recentCalls = toolCalls.slice(-3);
-					const hiddenCount = toolCalls.length > 3 ? toolCalls.length - 3 : 0;
-					let text = theme.fg("toolTitle", theme.bold(single.teammate));
-					if (single.model) text += theme.fg("dim", ` ${single.model}`);
-					if (hiddenCount > 0) text += `\n${theme.fg("muted", `${RES}… +${hiddenCount} tool uses`)}`;
-					for (const call of recentCalls) {
-						text += `\n${theme.fg("muted", RES)}${formatToolCall(call.name, call.args, theme.fg.bind(theme))}`;
+					const { hiddenCount, calls } = recentToolCalls(single, 3);
+					if (hiddenCount > 0) text += `\n  ${theme.fg("muted", "├  ")}… +${hiddenCount} tool uses`;
+					for (let i = 0; i < calls.length; i++) {
+						const connector = i === calls.length - 1 ? "└  " : "├  ";
+						const call = calls[i];
+						text += `\n  ${theme.fg("muted", connector)}${formatToolCall(call.name, call.args, theme.fg.bind(theme))}`;
 					}
-					text += `\n${theme.fg("muted", `${IND}Running…`)}`;
+					text += calls.length > 0
+						? `\n${theme.fg("muted", "       Running…")}`
+						: `\n  ${theme.fg("muted", "⎿  Running…")}`;
+					text += `\n\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
 					return new Text(text, 0, 0);
 				}
 
-				// Collapsed done state
-				const usageString = formatUsageStats(single.usage, single.model);
-				const doneLine = usageString ? `Done (${usageString})` : "Done";
-				let text = `${icon} ${theme.fg("toolTitle", theme.bold(single.teammate))}`;
-				if (isError && single.stopReason) text += theme.fg("error", ` [${single.stopReason}]`);
 				if (isError && single.errorMessage) {
-					text += `\n${theme.fg("muted", RES)}${theme.fg("error", single.errorMessage)}`;
+					text += `\n  ${theme.fg("muted", "⎿  ")}${theme.fg("error", `${single.errorMessage} ✗`)}`;
 				} else {
-					text += `\n${theme.fg("muted", RES)}${theme.fg("dim", doneLine)}`;
-					if (finalOutput) {
-						const preview = finalOutput.split("\n").slice(0, 3).join("\n");
-						text += `\n${theme.fg("toolOutput", preview)}`;
-					} else if (displayItems.length === 0) {
-						text += `\n${theme.fg("muted", `${IND}(no output)`)}`;
-					}
-					const toolCalls = displayItems.filter((item) => item.type === "toolCall");
-					if (toolCalls.length > details.collapsedItemCount) {
-						text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
-					}
+					text += `\n  ${theme.fg("muted", "⎿  ")}${formatDoneStatus(single)}`;
 				}
+				text += `\n\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
 				return new Text(text, 0, 0);
 			}
 
 			if (details.mode === "chain") {
-				const completedCount = details.results.filter((item) => item.exitCode !== -1).length;
-				const successCount = details.results.filter((item) => item.exitCode === 0).length;
+				const completedCount = details.results.filter(isFinishedResult).length;
+				const successCount = details.results.filter((item) => isFinishedResult(item) && item.exitCode === 0).length;
 				const icon = completedCount < details.results.length
 					? theme.fg("warning", "⏳")
 					: successCount === details.results.length ? theme.fg("success", "✓") : theme.fg("error", "✗");
@@ -1711,38 +1719,54 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 				}
 
 				// Collapsed chain — tree view
-				let text = icon + " " + theme.fg("toolTitle", theme.bold("chain ")) + theme.fg("accent", `${successCount}/${details.results.length} steps`);
+				const runningIndex = details.results.findIndex(isRunningResult);
+				const chainTotal = Math.max(details.results.length, chainArgs?.length ?? 0);
+				const rootStatus = runningIndex >= 0
+					? `chain ${completedCount}/${chainTotal} steps done · step ${details.results[runningIndex].step ?? runningIndex + 1} running`
+					: `chain ${successCount}/${chainTotal} steps finished ${successCount === chainTotal ? "✓" : "✗"}`;
+				let text = `${theme.fg("muted", "⎿ ")}${theme.fg("toolTitle", theme.bold(rootStatus))}`;
 				for (let i = 0; i < details.results.length; i++) {
 					const item = details.results[i];
-					const isLast = i === details.results.length - 1;
-					const branch = theme.fg("muted", isLast ? "   └ " : "   ├ ");
-					const cont = isLast ? "     " : theme.fg("muted", "   │ ");
-					const itemRunning = item.status === "running";
-					const stepLabel = theme.fg("muted", `Step ${item.step ?? i + 1}: `) + theme.fg("accent", item.teammate);
-					const stepUsage = !itemRunning ? formatUsageStats(item.usage, item.model) : "";
-					const statSuffix = stepUsage ? theme.fg("dim", `  · ${stepUsage}`) : "";
-					const statusIcon = itemRunning ? theme.fg("warning", " …") : item.exitCode === 0 ? theme.fg("success", " ✓") : theme.fg("error", " ✗");
-					text += "\n" + branch + stepLabel + statSuffix + statusIcon;
+					const isLast = i === chainTotal - 1;
+					const branch = theme.fg("muted", isLast ? "  └ " : "  ├ ");
+					const cont = isLast ? "    " : theme.fg("muted", "  │ ");
+					const itemRunning = isRunningResult(item);
+					const stepLabel = `Step ${item.step ?? i + 1}: ${item.teammate}`;
+					text += "\n" + branch + formatResultHeader(item, stepLabel);
+					text += "\n" + cont + theme.fg("muted", "├  ") + formatGoal(item.task);
 					if (itemRunning) {
-						const toolCalls = getDisplayItems(item.messages).filter((c) => c.type === "toolCall");
-						const last = toolCalls[toolCalls.length - 1];
-						if (last) text += "\n" + cont + theme.fg("muted", RES) + formatToolCall(last.name, last.args, theme.fg.bind(theme));
-						text += "\n" + cont + theme.fg("muted", `${IND}Running…`);
+						const { hiddenCount, calls } = recentToolCalls(item, 1);
+						if (hiddenCount > 0) text += "\n" + cont + theme.fg("muted", "├  ") + `… +${hiddenCount} tool uses`;
+						const last = calls[calls.length - 1];
+						if (last) text += "\n" + cont + theme.fg("muted", "└  ") + formatToolCall(last.name, last.args, theme.fg.bind(theme));
+						text += "\n" + cont + theme.fg("muted", last ? "     Running…" : "⎿  Running…");
 					} else {
-						const donePart = item.exitCode !== 0 ? `Error${item.stopReason ? ` [${item.stopReason}]` : ""}` : "Done";
-						text += "\n" + cont + theme.fg("muted", RES) + theme.fg("dim", donePart);
+						text += "\n" + cont + theme.fg("muted", "⎿  ") + formatDoneStatus(item);
 					}
 				}
-				const usageString = formatUsageStats(aggregateUsage(details.results));
-				if (usageString) text += `\n\n${theme.fg("dim", `Total: ${usageString}`)}`;
+				if (chainArgs && chainArgs.length > details.results.length) {
+					for (let i = details.results.length; i < chainArgs.length; i++) {
+						const step = chainArgs[i];
+						const isLast = i === chainArgs.length - 1;
+						const branch = theme.fg("muted", isLast ? "  └ " : "  ├ ");
+						const cont = isLast ? "    " : theme.fg("muted", "  │ ");
+						text += "\n" + branch + theme.fg("accent", `Step ${i + 1}: ${step.teammate ?? "…"}`);
+						text += "\n" + cont + theme.fg("muted", "├  ") + formatGoal(step.task ?? "…");
+						text += "\n" + cont + theme.fg("muted", "⎿  Waiting…");
+					}
+				}
+				if (runningIndex < 0) {
+					const usageString = formatUsageStats(aggregateUsage(details.results));
+					if (usageString) text += `\n\n${theme.fg("dim", `Total: ${usageString}`)}`;
+				}
 				text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
 				return new Text(text, 0, 0);
 			}
 
 			if (details.mode === "parallel") {
-				const running = details.results.filter((item) => item.exitCode === -1).length;
-				const successCount = details.results.filter((item) => item.exitCode !== -1 && !isFailedResult(item)).length;
-				const failCount = details.results.filter((item) => item.exitCode !== -1 && isFailedResult(item)).length;
+				const running = details.results.filter(isRunningResult).length;
+				const successCount = details.results.filter((item) => isFinishedResult(item) && !isFailedResult(item)).length;
+				const failCount = details.results.filter((item) => isFinishedResult(item) && isFailedResult(item)).length;
 				const isRunning = running > 0;
 				const icon = isRunning
 					? theme.fg("warning", "⏳")
@@ -1781,32 +1805,28 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 					return container;
 				}
 
-				// Collapsed parallel — CC-style tree view
+				// Collapsed parallel — tree view
 				const finishedCount = successCount + failCount;
-				const headerLabel = isRunning
-					? theme.fg("toolTitle", theme.bold("parallel ")) + theme.fg("accent", status)
-					: theme.fg("accent", String(finishedCount)) + " " + theme.fg("toolTitle", theme.bold(finishedCount === 1 ? "teammate finished" : "teammates finished")) +
-						(failCount > 0 ? theme.fg("warning", ` (${failCount} failed)`) : "");
-				let text = `${icon} ${headerLabel}`;
+				const rootStatus = isRunning
+					? `parallel ${finishedCount}/${details.results.length} done · ${running} running`
+					: `parallel ${finishedCount}/${details.results.length} teammates finished ${failCount > 0 ? `· ${failCount} failed ◐` : "✓"}`;
+				let text = `${theme.fg("muted", "⎿ ")}${theme.fg("toolTitle", theme.bold(rootStatus))}`;
 				for (let i = 0; i < details.results.length; i++) {
 					const item = details.results[i];
 					const isLast = i === details.results.length - 1;
-					const branch = theme.fg("muted", isLast ? "   └ " : "   ├ ");
-					const cont = isLast ? "     " : theme.fg("muted", "   │ ");
-					const itemRunning = item.exitCode === -1;
-					const itemFailed = !itemRunning && isFailedResult(item);
-					const taskUsage = !itemRunning ? formatUsageStats(item.usage, item.model) : "";
-					const usageSuffix = taskUsage ? theme.fg("dim", `  · ${taskUsage}`) : "";
-					const statusIcon = itemRunning ? "" : itemFailed ? theme.fg("error", " ✗") : "";
-					text += "\n" + branch + theme.fg("accent", item.teammate) + usageSuffix + statusIcon;
+					const branch = theme.fg("muted", isLast ? "  └ " : "  ├ ");
+					const cont = isLast ? "    " : theme.fg("muted", "  │ ");
+					const itemRunning = isRunningResult(item);
+					text += "\n" + branch + formatResultHeader(item);
+					text += "\n" + cont + theme.fg("muted", "├  ") + formatGoal(item.task);
 					if (itemRunning) {
-						const toolCalls = getDisplayItems(item.messages).filter((c) => c.type === "toolCall");
-						const last = toolCalls[toolCalls.length - 1];
-						if (last) text += "\n" + cont + theme.fg("muted", RES) + formatToolCall(last.name, last.args, theme.fg.bind(theme));
-						text += "\n" + cont + theme.fg("muted", `${IND}Running…`);
+						const { hiddenCount, calls } = recentToolCalls(item, 1);
+						if (hiddenCount > 0) text += "\n" + cont + theme.fg("muted", "├  ") + `… +${hiddenCount} tool uses`;
+						const last = calls[calls.length - 1];
+						if (last) text += "\n" + cont + theme.fg("muted", "└  ") + formatToolCall(last.name, last.args, theme.fg.bind(theme));
+						text += "\n" + cont + theme.fg("muted", last ? "     Running…" : "⎿  Running…");
 					} else {
-						const donePart = itemFailed ? `Error${item.stopReason && item.stopReason !== "end" ? ` [${item.stopReason}]` : ""}` : "Done";
-						text += "\n" + cont + theme.fg("muted", RES) + theme.fg("dim", donePart);
+						text += "\n" + cont + theme.fg("muted", "⎿  ") + formatDoneStatus(item);
 					}
 				}
 				if (!isRunning) {

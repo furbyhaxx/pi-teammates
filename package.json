@@ -27,6 +27,7 @@
   "files": [
     "src/",
     "examples/",
+    "skills/",
     "README.md",
     "CHANGELOG.md",
     "LICENSE",
@@ -34,7 +35,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "tsx tests/config.test.ts && tsx tests/teammates.test.ts && tsx tests/delegate.test.ts && tsx tests/process.test.ts && tsx tests/context.test.ts && tsx tests/jobs.test.ts && tsx tests/command-helpers.test.ts && tsx tests/teammate-state.test.ts && tsx tests/overlay-layout.test.ts",
+    "test:unit": "tsx tests/config.test.ts && tsx tests/teammates.test.ts && tsx tests/builtin-teammates.test.ts && tsx tests/delegate.test.ts && tsx tests/delegate-rendering.test.ts && tsx tests/process.test.ts && tsx tests/context.test.ts && tsx tests/jobs.test.ts && tsx tests/command-helpers.test.ts && tsx tests/teammate-state.test.ts && tsx tests/overlay-layout.test.ts && tsx tests/package.test.ts",
     "test": "npm run typecheck && npm run test:unit",
     "build": "npm run typecheck"
   },

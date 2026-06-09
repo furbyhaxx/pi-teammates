@@ -14,6 +14,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Added optional `teammates.context.contextMaxChars` setting that truncates the serialized conversation (keeping the most recent content) before sending it to the context-generation model, bounding cost and avoiding input-limit failures on long sessions.
 - Added a `source` field to persisted teammate job records so resumed sessions display the correct user/project scope instead of `(unknown)`.
 - Added a `warnings` list to teammate discovery results so malformed teammate files surface as visible warnings (in the delegate tool output and the `/team:manage` footer) instead of being silently dropped.
+- Added builtin teammate fallback profiles (`Documenter`, `Explorer`, `IssueAnalyst`, `Researcher`, `Reviewer`, `Worker`) loaded from `examples/teammates/` when no user or project teammate files exist.
+- Added `/team:eject project|user [--overwrite]` for copying builtin teammates into editable project or user-scoped teammate files.
+- Added split design captures under `docs/design/` for Claude Code-inspired pi-teammates improvements: command/tool boundaries, delegation orchestration, context steering/state, delegate TUI polish, teammate activity timelines, task-board workflows, teammate recruiting, and the display-state bug. Added a central `docs/design/README.md` with design status, backlog/deferral conventions, and recommended implementation order.
 - Added `recruiting-teammates` skill covering both user-requested and agent-autonomous teammate creation, including a requirements interview, teammate spec design guide, file placement, and a test-delegation validation loop. Registered `./skills` in the pi package manifest so the skill ships with the extension.
 - Added the `delegate` tool with single, parallel, and chained teammate execution.
 - Added scoped teammate discovery from `${PI_CODING_AGENT_DIR}/teammates/**/*.md` and nearest ancestor `.pi/teammates/**/*.md` directories.
@@ -35,7 +38,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Reworked collapsed `delegate` TUI rendering for single, parallel, and chain modes into tree-style teammate rows with persistent goal lines, richer live usage/model metadata, cleaner done/error status rows, and less duplicated task preview noise.
 - Moved teammate delegation enablement into the teammate `tools` map as `tools.delegate` instead of a separate top-level frontmatter key.
+- Updated all example teammate files to use the stronger project-style PascalCase teammate profiles, which now also serve as the builtin fallback roster.
 - Updated all example teammate files to declare `prompt: append` explicitly so the prompt mode is documented in-place.
 - Updated all example teammate files to declare `context: new` explicitly so the default context-transfer mode is shown in-place.
 - Updated example teammate profiles to demonstrate non-empty `skills` lists.
@@ -57,6 +62,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- Fixed teammate discovery rejecting PascalCase names; teammate names may now use uppercase and lowercase letters, numbers, and hyphens.
+- Fixed npm package contents omitting `skills/`, which prevented the packaged `recruiting-teammates` skill from being exposed on npm installs.
+- Fixed `/team:manage` warning UX to show skipped-file reasons instead of only a count.
+- Fixed collapsed parallel delegate rendering incorrectly showing running teammates as finished when live updates carried `status: running` with the initial `exitCode: 0`.
+- Fixed builtin teammates being directly editable/deletable from `/team:manage`; they are now read-only until ejected.
 - Fixed a variable-shadowing bug in the resume flow where the error path reported a stale job record, losing in-flight model and status updates.
 - Fixed `summary`/`handoff` context generation silently dropping pre-compaction messages when a compaction marker's `firstKeptEntryId` was not found.
 - Fixed the teammate manager validating edited project teammates with the wrong scope label.

@@ -1,9 +1,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { getBuiltinTeammates, getBuiltinTeammatesDir } from "./builtin-teammates.ts";
 import { parseTeammateContextMode, type TeammateContextMode } from "./context-transfer.ts";
 
-export type TeammateSource = "user" | "project";
+export type TeammateSource = "user" | "project" | "builtin";
 export type TeammatePromptMode = "append" | "replace";
 
 export interface TeammateConfig {
@@ -22,6 +23,7 @@ export interface TeammateConfig {
 export interface TeammateDiscoveryResult {
 	teammates: TeammateConfig[];
 	projectTeammatesDir: string | null;
+	usingBuiltins: boolean;
 	/** Paths of teammate files that failed to parse, with error messages. */
 	warnings: string[];
 }
@@ -86,8 +88,8 @@ export function parseTeammateMarkdown(
 	if (!name || !description) {
 		throw new Error(`Invalid teammate file ${filePath}: missing name or description`);
 	}
-	if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
-		throw new Error(`Invalid teammate file ${filePath}: teammate names must use lowercase letters, numbers, and hyphens only`);
+	if (!/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/.test(name)) {
+		throw new Error(`Invalid teammate file ${filePath}: teammate names must use letters, numbers, and hyphens only`);
 	}
 
 	return {
@@ -117,6 +119,7 @@ export function discoverTeammates(
 	const currentMtimes: Record<string, number> = {
 		...collectDirMtimes(userDir),
 		...(loadProjectTeammates && projectTeammatesDir ? collectDirMtimes(projectTeammatesDir) : {}),
+		...collectDirMtimes(getBuiltinTeammatesDir()),
 	};
 	const cached = _teammatesCache.get(cacheKey);
 	if (cached && mtimesEqual(cached.pathMtimes, currentMtimes)) {
@@ -131,17 +134,28 @@ export function discoverTeammates(
 	for (const teammate of userResult.teammates) {
 		teammateMap.set(teammate.name, teammate);
 	}
+	let scopedFileCount = userResult.fileCount;
 	if (loadProjectTeammates && projectTeammatesDir) {
 		const projectResult = loadTeammatesFromDir(projectTeammatesDir, "project");
 		warnings.push(...projectResult.warnings);
+		scopedFileCount += projectResult.fileCount;
 		for (const teammate of projectResult.teammates) {
 			teammateMap.set(teammate.name, teammate);
+		}
+	}
+
+	let usingBuiltins = false;
+	if (scopedFileCount === 0 && teammateMap.size === 0) {
+		usingBuiltins = true;
+		for (const builtin of getBuiltinTeammates()) {
+			teammateMap.set(builtin.name, parseTeammateMarkdown(builtin.filePath, "builtin", builtin.content));
 		}
 	}
 
 	const result: TeammateDiscoveryResult = {
 		teammates: Array.from(teammateMap.values()).sort((left, right) => left.name.localeCompare(right.name)),
 		projectTeammatesDir,
+		usingBuiltins,
 		warnings,
 	};
 	_teammatesCache.set(cacheKey, { result, pathMtimes: currentMtimes });
@@ -162,11 +176,12 @@ export function findNearestProjectTeammatesDir(cwd: string): string | null {
 function loadTeammatesFromDir(
 	dir: string,
 	source: TeammateSource,
-): { teammates: TeammateConfig[]; warnings: string[] } {
-	if (!isDirectory(dir)) return { teammates: [], warnings: [] };
+): { teammates: TeammateConfig[]; warnings: string[]; fileCount: number } {
+	if (!isDirectory(dir)) return { teammates: [], warnings: [], fileCount: 0 };
 	const teammates: TeammateConfig[] = [];
 	const warnings: string[] = [];
-	for (const filePath of collectMarkdownFiles(dir)) {
+	const filePaths = collectMarkdownFiles(dir);
+	for (const filePath of filePaths) {
 		try {
 			const content = fs.readFileSync(filePath, "utf-8");
 			teammates.push(parseTeammateMarkdown(filePath, source, content));
@@ -174,7 +189,7 @@ function loadTeammatesFromDir(
 			warnings.push(`${path.basename(filePath)}: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
-	return { teammates, warnings };
+	return { teammates, warnings, fileCount: filePaths.length };
 }
 
 function collectMarkdownFiles(dir: string): string[] {

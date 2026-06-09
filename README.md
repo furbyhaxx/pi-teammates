@@ -38,6 +38,8 @@ pi install npm:@furbyhaxx/pi-teammates
 - Adds a `delegate` tool for single, parallel, and chained teammate execution.
 - Discovers teammates from user and project scopes.
 - Loads project teammates by default and lets settings disable them globally or per project.
+- Falls back to bundled builtin teammates when no user or project teammate files exist.
+- Provides `/team:eject` to copy builtin teammates into project or user scope as editable starter files.
 - Supports teammate frontmatter `model: provider/model:thinking` values directly.
 - Parses teammate frontmatter `skills` lists and injects those skills into teammate session prompts automatically.
 - Supports teammate frontmatter `context: new | inherit | summary | handoff` values.
@@ -145,7 +147,7 @@ Project teammates are loaded recursively from the nearest ancestor directory con
 .pi/teammates/**/*.md
 ```
 
-Project teammates override user teammates with the same `name`.
+Project teammates override user teammates with the same `name`. If no user or project teammate Markdown files exist, pi-teammates falls back to bundled builtin teammates (`Documenter`, `Explorer`, `IssueAnalyst`, `Researcher`, `Reviewer`, and `Worker`). Builtins are read-only until ejected.
 
 ## Teammate frontmatter
 
@@ -153,10 +155,12 @@ Teammates are Markdown files with YAML frontmatter:
 
 ```md
 ---
-name: scout
-description: Maps repository structure, finds relevant files, and returns evidence-backed reconnaissance without planning or editing.
-model: deepseek/deepseek-v4-flash:xhigh
-context: new
+name: Explorer
+description: >
+  Read-only search & reconnaissance agent. Maps workspace/repo structure, locates
+  files/symbols, and gathers external facts for a scoped technical question.
+model: deepseek/deepseek-v4-flash:medium
+context: inherit
 prompt: append
 skills:
   - online-research
@@ -171,24 +175,24 @@ tools:
   ls: true
   plan_tracker: false
   web_search: true
-  web_image_search: false
+  web_image_search: true
   web_fetch: true
   web_repo_clone: true
   web_search_results: true
   AskUserQuestion: false
 ---
 # Role
-You are a reconnaissance specialist for scoped technical investigation.
+You are a file, workspace, repository, and online search & reconnaissance specialist for scoped technical investigation.
 
 # Task
-Find only the files, symbols, commands, and facts needed for the delegated question. Establish structure first, then zoom into relevant details.
+Find only the files, symbols, commands, and facts required to answer the delegated question. Establish structure first, then zoom into relevant details.
 ```
 
 ### Frontmatter fields
 
 | Key | Required | Meaning |
 | --- | --- | --- |
-| `name` | yes | Unique teammate identifier used by the `delegate` tool. |
+| `name` | yes | Unique teammate identifier used by the `delegate` tool. Names may use letters, numbers, and hyphens, so both `Worker` and `issue-analyst` are valid. |
 | `description` | yes | Short specialization summary used in the dynamic system prompt list. |
 | `model` | no | Passed directly to `pi --model`, so `provider/model:thinking` works. |
 | `context` | no | `new` (default), `inherit`, `summary`, or `handoff`. Controls the teammate's default context-transfer strategy. |
@@ -243,7 +247,7 @@ The tool supports three modes:
 
 ```json
 {
-  "teammate": "scout",
+  "teammate": "Explorer",
   "context": "summary",
   "task": "Find the auth entry points and summarize the call graph."
 }
@@ -262,8 +266,8 @@ The tool supports three modes:
 ```json
 {
   "tasks": [
-    { "teammate": "scout", "task": "Find all auth providers." },
-    { "teammate": "reviewer", "task": "List the highest-risk auth edge cases." }
+    { "teammate": "Explorer", "task": "Find all auth providers." },
+    { "teammate": "Reviewer", "task": "List the highest-risk auth edge cases." }
   ],
   "context": "handoff"
 }
@@ -274,8 +278,8 @@ The tool supports three modes:
 ```json
 {
   "chain": [
-    { "teammate": "scout", "task": "Map the session flow." },
-    { "teammate": "planner", "task": "Design the fix using this context:\n\n{previous}" }
+    { "teammate": "Explorer", "task": "Map the session flow." },
+    { "teammate": "IssueAnalyst", "task": "Diagnose the likely root cause using this context:\n\n{previous}" }
   ],
   "context": "new"
 }
@@ -285,13 +289,23 @@ Optional `cwd` is supported in single, parallel task items, and chain step items
 
 `resumeSessionId` is an alternative mode. Use the session id returned by a previous `delegate` call to reopen that persisted teammate session and continue its agent flow after something broke.
 
+## Command, tool, and internal mechanic boundaries
+
+pi-teammates intentionally separates three surfaces:
+
+- **User commands** (`/team:*`) are typed by the human and trigger UI/config/session workflows.
+- **Agent-callable tools** such as `delegate` are invoked by the model during normal work.
+- **Internal mechanics** such as system prompt injection, context transfer, custom session entries, and runtime reminders steer behavior without being directly invoked as slash commands.
+
+Future team workflows should preserve this boundary: for example `/team:goal` would be a user command, while an agent-updated goal would need an explicit tool or internal state mechanic.
+
 ## User commands
 
 ### Stay in the current session and manually offload work
 
 ```text
-/team:delegate --agent scout [--improve] <task>
-/team:handoff --agent reviewer [--improve] <task>
+/team:delegate --agent Explorer [--improve] <task>
+/team:handoff --agent Reviewer [--improve] <task>
 ```
 
 - `/team:delegate` uses the teammate default context mode unless you later extend it through the tool path.
@@ -315,10 +329,19 @@ Optional `cwd` is supported in single, parallel task items, and chain step items
 ```text
 /team:status
 /team:manage
+/team:eject project
+/team:eject user --overwrite
 ```
 
 - `/team:status` opens a responsive large-modal overlay showing teammate job state, session ids, effective model/thinking, context mode, and resumable interrupted runs.
-- `/team:manage` opens a responsive large-modal teammate manager for creating, editing, duplicating, and deleting teammate files.
+- `/team:manage` opens a responsive large-modal teammate manager for creating, editing, duplicating, and deleting teammate files. Builtin teammates are listed as `builtin` and are read-only.
+- `/team:eject project` copies builtin teammates to the nearest project `.pi/teammates/` directory, or creates one under the current working directory.
+- `/team:eject user` copies builtin teammates to `${PI_CODING_AGENT_DIR:-~/.pi/agent}/teammates/`.
+- Existing files are skipped unless `--overwrite` is passed.
+
+## Design notes
+
+Initial design captures for Claude Code-inspired improvements live in [`docs/design/`](docs/design/). Start with [`docs/design/README.md`](docs/design/README.md) for the design index, backlog/deferral convention, and recommended implementation order. The notes split command/tool boundaries, delegation orchestration, context steering/state, delegate TUI polish, teammate activity timelines, task-board workflows, teammate recruiting, and the delegate display-state bug into separate documents.
 
 ## Internal teammate sessions
 
@@ -347,7 +370,7 @@ Choose context deliberately: `new` for self-contained tasks, `summary` for fresh
 After a teammate returns, integrate the result yourself or issue a tighter follow-up; do not assume the child owns the conversation.
 </delegation_policy>
 <team>
-<member name="scout">Maps repository structure, finds relevant files, and returns evidence-backed reconnaissance without planning or editing.</member>
+<member name="Explorer" context="inherit">Read-only search & reconnaissance agent. Maps workspace/repo structure, locates files/symbols, and gathers external facts for a scoped technical question.</member>
 </team>
 ```
 
@@ -363,18 +386,19 @@ That blocks obvious recursion loops without pretending the model will police its
 
 ## Example teammates
 
-Example teammate definitions live in [`examples/teammates/`](examples/teammates/), and a commented settings example lives in [`examples/settings.jsonc`](examples/settings.jsonc).
+Example teammate definitions live in [`examples/teammates/`](examples/teammates/), and a commented settings example lives in [`examples/settings.jsonc`](examples/settings.jsonc). These examples are also the builtin fallback roster used when no user or project teammate files exist.
 
-The bundled profiles are structured operating policies, not magic one-liners. Copy them, then tune descriptions, models, skills, tools, and output contracts for your own workflow.
+The bundled profiles are structured operating policies, not magic one-liners. Use `/team:eject project` or `/team:eject user` to copy them into editable teammate files, then tune descriptions, models, skills, tools, and output contracts for your own workflow.
 
 ## Package manifest
 
-The Pi package manifest exposes only the extension entry point:
+The Pi package manifest exposes the extension entry point and bundled skills:
 
 ```json
 {
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./src/index.ts"],
+    "skills": ["./skills"]
   }
 }
 ```

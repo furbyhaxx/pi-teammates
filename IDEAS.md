@@ -13,4 +13,6 @@
 
 ## Open
 
-- Add new ideas here.
+> Add new ideas here
+- Teammate definition watcher aka hot reload when changes are detected
+- Explicit info injected into delegated agent's context or system prompt about the context and delgation mode, similar to how claude code does it (see https://github.com/Piebald-AI/claude-code-system-prompts.git)

@@ -57,6 +57,10 @@ export async function runTeammateManager(ctx: ExtensionCommandContext): Promise<
 }
 
 async function editTeammateFile(ctx: ExtensionCommandContext, teammate: TeammateConfig): Promise<void> {
+	if (teammate.source === "builtin") {
+		ctx.ui.notify("Builtin teammates are read-only. Run /team:eject project or /team:eject user first.", "warning");
+		return;
+	}
 	const current = await readFile(teammate.filePath, "utf-8");
 	const edited = await ctx.ui.editor(`Edit teammate: ${path.basename(teammate.filePath)}`, current);
 	if (edited === undefined || edited === current) return;
@@ -66,11 +70,15 @@ async function editTeammateFile(ctx: ExtensionCommandContext, teammate: Teammate
 }
 
 async function duplicateTeammate(ctx: ExtensionCommandContext, teammate: TeammateConfig): Promise<void> {
+	if (teammate.source === "builtin") {
+		ctx.ui.notify("Builtin teammates are read-only. Run /team:eject project or /team:eject user first.", "warning");
+		return;
+	}
 	const duplicateName = await ctx.ui.input("Duplicate teammate", `${teammate.name}-copy`);
 	if (!duplicateName) return;
 	const validatedName = validateTeammateName(duplicateName);
 	if (!validatedName) {
-		ctx.ui.notify("Teammate names must use lowercase letters, numbers, and hyphens only.", "warning");
+		ctx.ui.notify("Teammate names must use letters, numbers, and hyphens only.", "warning");
 		return;
 	}
 	const content = await readFile(teammate.filePath, "utf-8");
@@ -86,6 +94,10 @@ async function duplicateTeammate(ctx: ExtensionCommandContext, teammate: Teammat
 }
 
 async function deleteTeammate(ctx: ExtensionCommandContext, teammate: TeammateConfig): Promise<void> {
+	if (teammate.source === "builtin") {
+		ctx.ui.notify("Builtin teammates are read-only. Run /team:eject project or /team:eject user first.", "warning");
+		return;
+	}
 	const confirmed = await ctx.ui.confirm(
 		"Delete teammate?",
 		`${teammate.name}\n${teammate.filePath}\n\nThis removes the teammate file from disk.`,
@@ -102,7 +114,7 @@ async function createTeammate(ctx: ExtensionCommandContext): Promise<void> {
 	if (!name) return;
 	const validatedName = validateTeammateName(name);
 	if (!validatedName) {
-		ctx.ui.notify("Teammate names must use lowercase letters, numbers, and hyphens only.", "warning");
+		ctx.ui.notify("Teammate names must use letters, numbers, and hyphens only.", "warning");
 		return;
 	}
 	const description = await ctx.ui.input("New teammate description", "Describe what this teammate specializes in");
@@ -137,7 +149,7 @@ async function fileExists(targetPath: string): Promise<boolean> {
 
 function validateTeammateName(value: string): string | undefined {
 	const trimmed = value.trim();
-	return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(trimmed) ? trimmed : undefined;
+	return /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/.test(trimmed) ? trimmed : undefined;
 }
 
 class ManageOverlayComponent implements Focusable {
@@ -205,7 +217,7 @@ class ManageOverlayComponent implements Focusable {
 		rows.push(...padRowsToCount(contentRows, layout.contentRows, this.row(panelWidth, "")));
 
 		rows.push(this.row(panelWidth, this.theme.fg("dim", "─".repeat(Math.max(0, panelWidth - 4)))));
-		const warningNote = warnings.length > 0 ? this.theme.fg("warning", ` ⚠ ${warnings.length} file(s) skipped`) : "";
+		const warningNote = warnings.length > 0 ? this.theme.fg("warning", ` ⚠ ${warnings.length} file(s) skipped: ${warnings.slice(0, 2).join("; ")}${warnings.length > 2 ? "; …" : ""}`) : "";
 		rows.push(this.row(panelWidth, this.theme.fg("dim", this.footerText(panelWidth, visibleWindow.start, Math.max(0, teammates.length - visibleWindow.end))) + warningNote));
 		rows.push(this.theme.fg("accent", `└${"─".repeat(Math.max(0, panelWidth - 2))}┘`));
 		return rows.map((line) => truncateToWidth(line, panelWidth));
@@ -273,7 +285,7 @@ class ManageOverlayComponent implements Focusable {
 		if (panelWidth <= 88) {
 			return `${scrollHint}Enter edit  n new  d dup  x del  Esc close`;
 		}
-		return `${scrollHint}[Enter] Edit   [n] New teammate   [d] Duplicate   [x] Delete   [Esc] Close`;
+		return `${scrollHint}[Enter] Edit   [n] New teammate   [d] Duplicate   [x] Delete   [Esc] Close   [/team:eject] Copy builtins`;
 	}
 }
 

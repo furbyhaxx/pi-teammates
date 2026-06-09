@@ -8,10 +8,10 @@ import {
 } from "../src/teammates.ts";
 
 const parsed = parseTeammateMarkdown(
-	join("/tmp", "scout.md"),
+	join("/tmp", "ScoutAgent.md"),
 	"user",
 	`---
-name: scout
+name: ScoutAgent
 description: Fast recon teammate
 tools:
   read: true
@@ -29,7 +29,7 @@ Inspect the codebase and report only the relevant findings.\n`,
 );
 
 assert.deepEqual(parsed, {
-	name: "scout",
+	name: "ScoutAgent",
 	description: "Fast recon teammate",
 	tools: {
 		read: true,
@@ -43,7 +43,7 @@ assert.deepEqual(parsed, {
 	promptMode: "replace",
 	systemPrompt: "Inspect the codebase and report only the relevant findings.",
 	source: "user",
-	filePath: join("/tmp", "scout.md"),
+	filePath: join("/tmp", "ScoutAgent.md"),
 });
 
 assert.throws(
@@ -57,7 +57,7 @@ description: nope
 ---
 prompt\n`,
 		),
-	/teammate names must use lowercase letters, numbers, and hyphens only/,
+	/teammate names must use letters, numbers, and hyphens only/,
 );
 
 const root = mkdtempSync(join(tmpdir(), "pi-teammates-discovery-"));
@@ -107,6 +107,7 @@ const discovery = discoverTeammates(nestedCwd, {
 	loadProjectTeammates: true,
 });
 assert.equal(discovery.projectTeammatesDir, join(projectRoot, ".pi", "teammates"));
+assert.equal(discovery.usingBuiltins, false);
 assert.deepEqual(
 	discovery.teammates.map((teammate) => ({
 		name: teammate.name,
@@ -140,9 +141,32 @@ const noProject = discoverTeammates(nestedCwd, {
 	agentDir,
 	loadProjectTeammates: false,
 });
+assert.equal(noProject.usingBuiltins, false);
 assert.deepEqual(
 	noProject.teammates.map((teammate) => teammate.name),
 	["scout", "worker"],
+);
+
+const emptyRoot = mkdtempSync(join(tmpdir(), "pi-teammates-empty-"));
+const emptyAgentDir = join(emptyRoot, "agent");
+const emptyProject = join(emptyRoot, "workspace");
+mkdirSync(join(emptyAgentDir, "teammates"), { recursive: true });
+mkdirSync(emptyProject, { recursive: true });
+const builtinDiscovery = discoverTeammates(emptyProject, {
+	agentDir: emptyAgentDir,
+	loadProjectTeammates: true,
+});
+assert.equal(builtinDiscovery.usingBuiltins, true);
+assert.deepEqual(
+	builtinDiscovery.teammates.map((teammate) => ({ name: teammate.name, source: teammate.source })),
+	[
+		{ name: "Documenter", source: "builtin" },
+		{ name: "Explorer", source: "builtin" },
+		{ name: "IssueAnalyst", source: "builtin" },
+		{ name: "Researcher", source: "builtin" },
+		{ name: "Reviewer", source: "builtin" },
+		{ name: "Worker", source: "builtin" },
+	],
 );
 
 console.log("teammate discovery tests passed");

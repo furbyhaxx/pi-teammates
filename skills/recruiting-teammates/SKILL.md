@@ -187,7 +187,7 @@ Keep it one sentence. Do not summarize the workflow — describe the specializat
 
 ### Name Validation
 
-The `name` field must match: lowercase letters, numbers, and hyphens only. No leading, trailing, or consecutive hyphens. Must be unique across the discovered roster.
+The `name` field must match: letters, numbers, and hyphens only. PascalCase names such as `IssueAnalyst` and lowercase slugs such as `issue-analyst` are both valid. No leading, trailing, or consecutive hyphens. Must be unique across the discovered roster.
 
 ---
 
@@ -292,7 +292,7 @@ Edit the file and re-run the failing tasks. Repeat until all three tests produce
 
 ### Step 5 — Final checklist
 
-- [ ] Name unique, valid format (lowercase-hyphens only)
+- [ ] Name unique, valid format (letters, numbers, and hyphens only; PascalCase is allowed)
 - [ ] Description is one precise specialization sentence
 - [ ] `delegate: false` set (unless sub-delegation was intentional)
 - [ ] Tools use allowlist pattern (at least one `true`) unless denylist was deliberate
