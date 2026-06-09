@@ -1,12 +1,4 @@
-import {
-	createAgentSession,
-	DefaultResourceLoader,
-	getAgentDir,
-	SessionManager,
-	SettingsManager,
-	type ModelRegistry,
-	type SessionEntry,
-} from "@earendil-works/pi-coding-agent";
+import { SessionManager, type ModelRegistry, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
 import {
 	buildDelegatedUserTask,
@@ -17,12 +9,12 @@ import {
 import type { TeammatesSettingsConfig } from "../config.ts";
 import { canDelegateToTeammate, resolveTeammateToolNames } from "../delegation-policy.ts";
 import { createTeammateJobRecord, updateTeammateJobRecord, type TeammateJobRecord } from "../job-registry.ts";
-import { buildInjectedSkillsPrompt } from "../teammate-skills.ts";
 import { createTeammateSessionState, TEAMMATE_STATE_CUSTOM_TYPE } from "../teammate-state.ts";
 import type { TeammateConfig } from "../teammates.ts";
-import { formatResolvedModelLabel, resolveTeammateModel } from "./model.ts";
+import { resolveTeammateModel } from "./model.ts";
 import { getFinalOutput } from "./output.ts";
-import { extractRunOutcome, getTrackableMessages } from "./run-outcome.ts";
+import { extractRunOutcome } from "./run-outcome.ts";
+import { createChildRuntime, type ChildRuntimeSetupResult } from "./runtime.ts";
 import { buildChildSessionDir, createJobId } from "./session-paths.ts";
 import type { DelegateDetails, OnUpdateCallback, SingleResult } from "./types.ts";
 
@@ -106,13 +98,10 @@ export async function runSingleTeammate(args: {
 		});
 	};
 
-	let sessionHandle: Awaited<ReturnType<typeof createAgentSession>> | undefined;
-	let unsubscribe: (() => void) | undefined;
+	let runtime: ChildRuntimeSetupResult | undefined;
 	let jobRecord: TeammateJobRecord | undefined;
-	let abortCleanup: (() => void) | undefined;
 
 	try {
-		const agentDir = getAgentDir();
 		const childSessionDir = buildChildSessionDir(args.parentSessionDir, args.parentSessionId);
 		const childSessionManager =
 			contextMode === "inherit"
@@ -203,102 +192,32 @@ export async function runSingleTeammate(args: {
 			fallbackModel: args.currentModel,
 		});
 
-		const childSettingsManager = SettingsManager.create(childCwd, agentDir);
-		const childResourceLoader = new DefaultResourceLoader({
+		runtime = await createChildRuntime({
 			cwd: childCwd,
-			agentDir,
-			settingsManager: childSettingsManager,
-		});
-		await childResourceLoader.reload();
-		const injectedSkills = await buildInjectedSkillsPrompt({
-			skillNames: teammate.skills,
-			availableSkills: childResourceLoader.getSkills().skills,
-		});
-		if (injectedSkills.missing.length > 0) {
-			currentResult.stderr += `Missing teammate skills: ${injectedSkills.missing.join(", ")}\n`;
-		}
-		const promptSections = [teammate.systemPrompt, injectedSkills.prompt].filter((section) => section.trim().length > 0);
-		const sessionResourceLoader = new DefaultResourceLoader({
-			cwd: childCwd,
-			agentDir,
-			settingsManager: childSettingsManager,
-			systemPromptOverride: teammate.promptMode === "replace" ? () => promptSections.join("\n\n") : undefined,
-			appendSystemPromptOverride:
-				teammate.promptMode === "append" && promptSections.length > 0
-					? (base) => [...base, ...promptSections]
-					: undefined,
-		});
-		await sessionResourceLoader.reload();
-
-		sessionHandle = await createAgentSession({
-			cwd: childCwd,
-			agentDir,
 			modelRegistry: args.modelRegistry,
 			model: childModel,
 			thinkingLevel,
+			includeModelOptions: true,
 			sessionManager: childSessionManager,
-			settingsManager: childSettingsManager,
-			resourceLoader: sessionResourceLoader,
-			tools: disableAllTools ? undefined : resolvedTools,
-			noTools: disableAllTools ? "all" : undefined,
-		});
-
-		const childSession = sessionHandle.session;
-		const updateEffectiveModel = () => {
-			const resolvedModel = formatResolvedModelLabel(childSession.model, childSession.thinkingLevel);
-			if (!resolvedModel) return;
-			currentResult.model = resolvedModel;
-			if (jobRecord && jobRecord.model !== resolvedModel) {
-				jobRecord = updateTeammateJobRecord(jobRecord, jobRecord.status, { model: resolvedModel });
-				args.appendJobRecord(jobRecord);
-			}
-		};
-		updateEffectiveModel();
-		await childSession.bindExtensions({
-			onError: (error) => {
-				currentResult.stderr += `Extension error (${error.extensionPath}): ${error.error}\n`;
+			toolNames: resolvedTools,
+			disableAllTools,
+			skills: teammate.skills,
+			promptMode: teammate.promptMode,
+			systemPrompt: teammate.systemPrompt,
+			result: currentResult,
+			jobRecord,
+			appendJobRecord: args.appendJobRecord,
+			onJobRecordUpdate: (record) => {
+				jobRecord = record;
 			},
+			emitUpdate,
+			signal: args.signal,
 		});
 
-		const syncSnapshot = () => {
-			const snapshot = [...childSession.state.messages];
-			if (childSession.state.streamingMessage?.role === "assistant") {
-				snapshot.push(childSession.state.streamingMessage);
-			}
-			currentResult.messages = getTrackableMessages(snapshot);
-			const outcome = extractRunOutcome(currentResult.messages);
-			currentResult.usage = outcome.usage;
-			currentResult.stopReason = outcome.stopReason;
-			currentResult.errorMessage = outcome.errorMessage;
-			updateEffectiveModel();
-			emitUpdate();
-		};
-
-		unsubscribe = childSession.subscribe((event) => {
-			if (
-				event.type === "message_start" ||
-				event.type === "message_update" ||
-				event.type === "message_end" ||
-				event.type === "tool_execution_start" ||
-				event.type === "tool_execution_update" ||
-				event.type === "tool_execution_end"
-			) {
-				syncSnapshot();
-			}
-		});
-
-		if (args.signal) {
-			const abortChild = () => {
-				void childSession.abort();
-			};
-			if (args.signal.aborted) abortChild();
-			else args.signal.addEventListener("abort", abortChild, { once: true });
-			abortCleanup = () => args.signal?.removeEventListener("abort", abortChild);
-		}
-
+		const childSession = runtime.sessionHandle.session;
 		await childSession.prompt(delegatedTask);
 		await childSession.agent.waitForIdle();
-		syncSnapshot();
+		runtime.syncSnapshot();
 
 		const outcome = extractRunOutcome(currentResult.messages);
 		currentResult.exitCode = outcome.exitCode;
@@ -313,7 +232,8 @@ export async function runSingleTeammate(args: {
 					: "failed";
 
 		if (jobRecord) {
-			args.appendJobRecord(updateTeammateJobRecord(jobRecord, currentResult.status as any));
+			jobRecord = updateTeammateJobRecord(runtime.getJobRecord() ?? jobRecord, currentResult.status as any);
+			args.appendJobRecord(jobRecord);
 		}
 
 		return currentResult;
@@ -322,12 +242,10 @@ export async function runSingleTeammate(args: {
 		currentResult.status = currentResult.status === "running" ? "failed" : currentResult.status;
 		currentResult.stderr += `${error instanceof Error ? error.message : String(error)}`;
 		if (jobRecord) {
-			args.appendJobRecord(updateTeammateJobRecord(jobRecord, "failed"));
+			args.appendJobRecord(updateTeammateJobRecord(runtime?.getJobRecord() ?? jobRecord, "failed"));
 		}
 		return currentResult;
 	} finally {
-		abortCleanup?.();
-		unsubscribe?.();
-		sessionHandle?.session.dispose();
+		runtime?.cleanup();
 	}
 }
