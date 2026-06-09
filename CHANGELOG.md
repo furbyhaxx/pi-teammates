@@ -38,7 +38,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
-- Documented the approved domain-first modularization design for a behavior-preserving refactor of the extension internals.
+- Documented the approved domain-first modularization design and implementation plan for a behavior-preserving refactor of the extension internals.
 - Reworked collapsed `delegate` TUI rendering for single, parallel, and chain modes into tree-style teammate rows with persistent goal lines, richer live usage/model metadata, cleaner done/error status rows, and less duplicated task preview noise.
 - Moved teammate delegation enablement into the teammate `tools` map as `tools.delegate` instead of a separate top-level frontmatter key.
 - Updated all example teammate files to use the stronger project-style PascalCase teammate profiles, which now also serve as the builtin fallback roster.
