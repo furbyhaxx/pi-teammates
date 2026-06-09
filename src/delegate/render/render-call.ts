@@ -1,5 +1,5 @@
 import { Text } from "@earendil-works/pi-tui";
-import type { DelegateParams } from "../types.ts";
+import type { DelegateParams } from "../schema.ts";
 
 export function renderDelegateCall(args: DelegateParams, theme: any): Text {
 	const contextSuffix = args.context ? theme.fg("dim", ` [${args.context}]`) : "";

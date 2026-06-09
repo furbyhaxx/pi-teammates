@@ -17,7 +17,6 @@ import {
 	buildTeamPromptBlock,
 	canDelegateToTeammate,
 } from "./delegation-policy.ts";
-import { findTeammateJob } from "./delegate/execute.ts";
 import { getResultOutput, isFailedResult } from "./delegate/output.ts";
 import { resumeTeammateSession } from "./delegate/resume-runner.ts";
 import { runSingleTeammate } from "./delegate/single-runner.ts";
@@ -25,6 +24,7 @@ import { parseTeammatesLineage, TEAMMATES_LINEAGE_ENV } from "./delegate-process
 import { registerTools } from "./extension/register-tools.ts";
 import {
 	collectInterruptedTeammateJobs,
+	findTeammateJob,
 	TEAMMATE_JOB_CUSTOM_TYPE,
 	type TeammateJobRecord,
 	updateTeammateJobRecord,

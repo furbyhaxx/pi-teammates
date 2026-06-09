@@ -1,10 +1,10 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadTeammatesConfig } from "../config.ts";
 import { canDelegateToTeammate } from "../delegation-policy.ts";
 import { parseTeammatesLineage, TEAMMATES_LINEAGE_ENV } from "../delegate-process.ts";
 import {
-	collectLatestTeammateJobs,
+	findTeammateJob,
 	TEAMMATE_JOB_CUSTOM_TYPE,
 	type TeammateJobRecord,
 } from "../job-registry.ts";
@@ -20,11 +20,8 @@ import {
 import { executeDelegateParallel } from "./parallel.ts";
 import { resumeTeammateSession } from "./resume-runner.ts";
 import { runSingleTeammate } from "./single-runner.ts";
-import type { DelegateDetails, DelegateParams, OnUpdateCallback, SingleResult } from "./types.ts";
-
-export function findTeammateJob(sessionEntries: SessionEntry[], sessionId: string): TeammateJobRecord | undefined {
-	return collectLatestTeammateJobs(sessionEntries).get(sessionId);
-}
+import type { DelegateParams } from "./schema.ts";
+import type { DelegateDetails, OnUpdateCallback, SingleResult } from "./types.ts";
 
 function formatAvailableTeammates(teammates: TeammateConfig[]): string {
 	return teammates.map((teammate) => `${teammate.name} (${teammate.source})`).join(", ") || "none";
@@ -43,7 +40,7 @@ export async function executeDelegateTool(args: {
 	params: DelegateParams;
 	signal: AbortSignal | undefined;
 	onUpdate: OnUpdateCallback | undefined;
-	ctx: any;
+	ctx: ExtensionContext;
 }): Promise<AgentToolResult<DelegateDetails>> {
 	const runtimeConfig = loadTeammatesConfig(args.ctx.cwd).config.teammates;
 	const lineage = getLatestTeammateSessionState(args.ctx.sessionManager.getEntries())?.lineage ?? parseTeammatesLineage(process.env[TEAMMATES_LINEAGE_ENV]);

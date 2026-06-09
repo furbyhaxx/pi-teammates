@@ -38,14 +38,4 @@ export interface DelegateDetails {
 	results: SingleResult[];
 }
 
-export type DelegateParams = {
-	resumeSessionId?: string;
-	teammate?: string;
-	task?: string;
-	tasks?: Array<{ teammate: string; task: string; cwd?: string }>;
-	chain?: Array<{ teammate: string; task: string; cwd?: string }>;
-	context?: TeammateContextMode;
-	cwd?: string;
-};
-
 export type OnUpdateCallback = (partial: AgentToolResult<DelegateDetails>) => void;

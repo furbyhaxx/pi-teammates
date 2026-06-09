@@ -1,5 +1,5 @@
 import { StringEnum } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
+import { type Static, Type } from "typebox";
 import { TEAMMATE_CONTEXT_MODES } from "../context-transfer.ts";
 
 export const TaskItem = Type.Object({
@@ -28,3 +28,5 @@ export const DelegateParamsSchema = Type.Object({
 	context: Type.Optional(ContextModeSchema),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the teammate process (single mode)" })),
 });
+
+export type DelegateParams = Static<typeof DelegateParamsSchema>;

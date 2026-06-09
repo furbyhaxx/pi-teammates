@@ -101,6 +101,10 @@ export function collectInterruptedTeammateJobs(entries: SessionEntry[]): Teammat
 	return Array.from(collectLatestTeammateJobs(entries).values()).filter((record) => record.status === "running");
 }
 
+export function findTeammateJob(sessionEntries: SessionEntry[], sessionId: string): TeammateJobRecord | undefined {
+	return collectLatestTeammateJobs(sessionEntries).get(sessionId);
+}
+
 type TeammateJobRecordInput = Omit<TeammateJobRecord, "skills"> & { skills?: unknown };
 
 function normalizeJobRecord(record: TeammateJobRecordInput): TeammateJobRecord {

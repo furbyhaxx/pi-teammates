@@ -1,4 +1,4 @@
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { TeammatesSettingsConfig } from "../config.ts";
 import type { TeammateJobRecord } from "../job-registry.ts";
 import type { TeammateConfig } from "../teammates.ts";
@@ -9,11 +9,12 @@ import {
 	getResultOutput,
 	isFailedResult,
 } from "./output.ts";
-import type { DelegateDetails, DelegateParams, OnUpdateCallback, SingleResult } from "./types.ts";
+import type { DelegateParams } from "./schema.ts";
+import type { DelegateDetails, OnUpdateCallback, SingleResult } from "./types.ts";
 
 export async function executeDelegateChain(args: {
 	params: DelegateParams;
-	ctx: any;
+	ctx: ExtensionContext;
 	runtimeConfig: TeammatesSettingsConfig;
 	activeTools: string[];
 	teammates: TeammateConfig[];
