@@ -1,7 +1,7 @@
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentMessage, AgentToolResult } from "@earendil-works/pi-agent-core";
-import type { Message, Model, ThinkingLevel } from "@earendil-works/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Message, Model } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
 import {
 	createAgentSession,
@@ -21,7 +21,6 @@ import { loadTeammatesConfig, type TeammatesSettingsConfig } from "./config.ts";
 import {
 	buildDelegatedUserTask,
 	generateDelegationContext,
-	parseContextModelRef,
 	selectContextMode,
 	TEAMMATE_CONTEXT_MODES,
 	type TeammateContextMode,
@@ -37,6 +36,19 @@ import {
 	canDelegateToTeammate,
 	resolveTeammateToolNames,
 } from "./delegation-policy.ts";
+import { getDisplayItems } from "./delegate/display-items.ts";
+import { formatResolvedModelLabel, resolveTeammateModel } from "./delegate/model.ts";
+import {
+	formatChainResultLabel,
+	getFinalOutput,
+	getResultOutput,
+	isFailedResult,
+	isFinishedResult,
+	isRunningResult,
+	prependResultMeta,
+	truncateParallelOutput,
+} from "./delegate/output.ts";
+import type { DelegateDetails, DelegateParams, OnUpdateCallback, SingleResult, UsageStats } from "./delegate/types.ts";
 import { parseTeammatesLineage, TEAMMATES_LINEAGE_ENV } from "./delegate-process.ts";
 import {
 	collectInterruptedTeammateJobs,
@@ -55,6 +67,8 @@ import {
 	TEAMMATE_STATE_CUSTOM_TYPE,
 } from "./teammate-state.ts";
 import { discoverTeammates, type TeammateConfig } from "./teammates.ts";
+
+export { formatResolvedModelLabel } from "./delegate/model.ts";
 
 function formatTokens(count: number): string {
 	if (count < 1000) return count.toString();
@@ -84,14 +98,6 @@ function formatUsageStats(
 	if (usage.cost) parts.push(`$${usage.cost.toFixed(4)}`);
 	if (model) parts.push(model);
 	return parts.join(" · ");
-}
-
-export function formatResolvedModelLabel(
-	model: { provider: string; id: string } | undefined,
-	thinkingLevel: ThinkingLevel | "off" | undefined,
-): string | undefined {
-	if (!model) return undefined;
-	return thinkingLevel ? `${model.provider}/${model.id}:${thinkingLevel}` : `${model.provider}/${model.id}`;
 }
 
 function formatToolCall(
@@ -177,120 +183,6 @@ function formatToolCall(
 	}
 }
 
-interface UsageStats {
-	input: number;
-	output: number;
-	cacheRead: number;
-	cacheWrite: number;
-	cost: number;
-	contextTokens: number;
-	turns: number;
-}
-
-interface SingleResult {
-	teammate: string;
-	teammateSource: "user" | "project" | "builtin" | "unknown";
-	task: string;
-	contextMode?: TeammateContextMode;
-	jobId?: string;
-	sessionId?: string;
-	sessionPath?: string;
-	status?: string;
-	exitCode: number;
-	messages: Message[];
-	stderr: string;
-	usage: UsageStats;
-	model?: string;
-	stopReason?: string;
-	errorMessage?: string;
-	step?: number;
-}
-
-interface DelegateDetails {
-	mode: "single" | "parallel" | "chain";
-	projectTeammatesDir: string | null;
-	collapsedItemCount: number;
-	results: SingleResult[];
-}
-
-function getFinalOutput(messages: Message[]): string {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const message = messages[i];
-		if (message.role === "assistant") {
-			for (const part of message.content) {
-				if (part.type === "text") return part.text;
-			}
-		}
-	}
-	return "";
-}
-
-function isFailedResult(result: SingleResult): boolean {
-	return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
-}
-
-function isRunningResult(result: SingleResult): boolean {
-	if (result.status === "running") return true;
-	if (result.status) return false;
-	return result.exitCode === -1;
-}
-
-function isFinishedResult(result: SingleResult): boolean {
-	return !isRunningResult(result);
-}
-
-function getResultOutput(result: SingleResult): string {
-	if (isFailedResult(result)) {
-		return result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)";
-	}
-	return getFinalOutput(result.messages) || "(no output)";
-}
-
-function formatResultMetaLines(result: Pick<SingleResult, "sessionId" | "model">): string[] {
-	const lines: string[] = [];
-	if (result.sessionId) lines.push(`Session: ${result.sessionId}`);
-	if (result.model) lines.push(`Model: ${result.model}`);
-	return lines;
-}
-
-function prependResultMeta(result: Pick<SingleResult, "sessionId" | "model">, body: string): string {
-	const meta = formatResultMetaLines(result);
-	if (meta.length === 0) return body;
-	return body.trim().length > 0 ? `${meta.join("\n")}\n\n${body}` : meta.join("\n");
-}
-
-function formatChainResultLabel(result: Pick<SingleResult, "teammate" | "sessionId" | "model">): string {
-	let label = `${result.teammate}: ${result.sessionId ?? "unknown"}`;
-	if (result.model) label += ` [${result.model}]`;
-	return label;
-}
-
-function truncateParallelOutput(output: string, maxBytes: number): string {
-	const byteLength = Buffer.byteLength(output, "utf8");
-	if (byteLength <= maxBytes) return output;
-
-	let truncated = output.slice(0, maxBytes);
-	while (Buffer.byteLength(truncated, "utf8") > maxBytes) {
-		truncated = truncated.slice(0, -1);
-	}
-	return `${truncated}\n\n[Output truncated: ${byteLength - Buffer.byteLength(truncated, "utf8")} bytes omitted. Full output preserved in tool details.]`;
-}
-
-type DisplayItem = { type: "text"; text: string } | { type: "toolCall"; name: string; args: Record<string, any> };
-
-function getDisplayItems(messages: Message[]): DisplayItem[] {
-	const items: DisplayItem[] = [];
-	for (const message of messages) {
-		if (message.role === "assistant") {
-			for (const part of message.content) {
-				if (part.type === "text") items.push({ type: "text", text: part.text });
-				else if (part.type === "toolCall") items.push({ type: "toolCall", name: part.name, args: part.arguments });
-			}
-		}
-	}
-	return items;
-}
-
 async function mapWithConcurrencyLimit<TIn, TOut>(
 	items: TIn[],
 	concurrency: number,
@@ -323,25 +215,6 @@ function getTrackableMessages(messages: AgentMessage[]): Message[] {
 	return messages.filter((message) => message.role === "assistant" || message.role === "toolResult") as Message[];
 }
 
-function resolveTeammateModel(args: {
-	teammateModel: string | undefined;
-	modelRegistry: ModelRegistry;
-	fallbackModel: Model<any> | undefined;
-}): { model: Model<any> | undefined; thinkingLevel: ThinkingLevel | undefined } {
-	if (!args.teammateModel || args.teammateModel.trim() === "") {
-		return { model: args.fallbackModel, thinkingLevel: undefined };
-	}
-	const parsed = parseContextModelRef(args.teammateModel, args.fallbackModel?.provider);
-	if (!parsed) {
-		throw new Error(`Invalid teammate model reference: ${args.teammateModel}`);
-	}
-	const model = args.modelRegistry.find(parsed.provider, parsed.id);
-	if (!model) {
-		throw new Error(`Configured teammate model not found: ${parsed.provider}/${parsed.id}`);
-	}
-	return { model, thinkingLevel: parsed.thinking };
-}
-
 function extractRunOutcome(messages: Message[]): { exitCode: number; stopReason?: string; errorMessage?: string; usage: UsageStats } {
 	const usage: UsageStats = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
 	let stopReason: string | undefined;
@@ -370,8 +243,6 @@ function extractRunOutcome(messages: Message[]): { exitCode: number; stopReason?
 		usage,
 	};
 }
-
-type OnUpdateCallback = (partial: AgentToolResult<DelegateDetails>) => void;
 
 async function runSingleTeammate(args: {
 	defaultCwd: string;
@@ -883,16 +754,6 @@ const DelegateParamsSchema = Type.Object({
 	context: Type.Optional(ContextModeSchema),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the teammate process (single mode)" })),
 });
-
-type DelegateParams = {
-	resumeSessionId?: string;
-	teammate?: string;
-	task?: string;
-	tasks?: Array<{ teammate: string; task: string; cwd?: string }>;
-	chain?: Array<{ teammate: string; task: string; cwd?: string }>;
-	context?: TeammateContextMode;
-	cwd?: string;
-};
 
 async function runManualTeammateDelegation(args: {
 	pi: ExtensionAPI;
