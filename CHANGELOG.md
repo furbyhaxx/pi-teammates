@@ -38,6 +38,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Extracted delegate schema, execution routing, and tool registration into focused delegate/extension modules while preserving existing behavior.
 - Extracted delegate session runner primitives and teammate resume logic into focused delegate modules while preserving existing behavior.
 - Extracted delegate rendering formatters and render hooks into focused delegate render modules while preserving existing behavior.
 - Extracted shared delegate result types, model resolution, output formatting, and display item helpers into focused delegate modules while preserving existing behavior.
