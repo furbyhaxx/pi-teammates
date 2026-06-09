@@ -38,6 +38,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Extracted slash command handlers and extension event registration into focused command/extension modules while preserving behavior.
 - Tightened extracted delegate execution typing, made delegate parameters derive from the TypeBox schema, and moved teammate job lookup into the job registry while preserving behavior.
 - Extracted delegate schema, execution routing, and tool registration into focused delegate/extension modules while preserving existing behavior.
 - Extracted delegate session runner primitives and teammate resume logic into focused delegate modules while preserving existing behavior.
