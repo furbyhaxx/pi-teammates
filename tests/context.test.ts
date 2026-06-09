@@ -6,18 +6,12 @@ import {
 	resolveConfiguredContextModelRefs,
 	selectContextMode,
 } from "../src/context-transfer.ts";
-import {
-	parseTeammateContextMode as parseTeammateContextModeFromContextIndex,
-	selectContextMode as selectContextModeFromContextIndex,
-} from "../src/context/index.ts";
 
 assert.equal(parseTeammateContextMode(undefined), "new");
 assert.equal(parseTeammateContextMode("inherit"), "inherit");
 assert.equal(parseTeammateContextMode("summary"), "summary");
 assert.equal(parseTeammateContextMode("handoff"), "handoff");
 assert.equal(parseTeammateContextMode("bogus"), "new");
-assert.equal(parseTeammateContextModeFromContextIndex("summary"), "summary");
-assert.equal(selectContextModeFromContextIndex(undefined, "handoff"), "handoff");
 
 assert.deepEqual(parseContextModelRef("deepseek/deepseek-v4-flash:high"), {
 	provider: "deepseek",

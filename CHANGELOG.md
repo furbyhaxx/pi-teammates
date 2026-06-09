@@ -38,6 +38,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Dropped out-of-scope context index assertions from the context-transfer test while keeping the context-module split intact.
 - Split context-transfer internals into focused context modules with the original root import path kept as a compatibility barrel.
 - Extracted slash command handlers and extension event registration into focused command/extension modules while preserving behavior.
 - Tightened extracted delegate execution typing, made delegate parameters derive from the TypeBox schema, and moved teammate job lookup into the job registry while preserving behavior.
