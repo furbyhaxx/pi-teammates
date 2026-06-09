@@ -7,7 +7,6 @@ import {
 	SettingsManager,
 	type ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import type { TeammatesSettingsConfig } from "../config.ts";
 import { updateTeammateJobRecord, type TeammateJobRecord } from "../job-registry.ts";
 import { buildInjectedSkillsPrompt } from "../teammate-skills.ts";
 import { formatResolvedModelLabel } from "./model.ts";
@@ -16,7 +15,6 @@ import { extractRunOutcome, getTrackableMessages } from "./run-outcome.ts";
 import type { DelegateDetails, OnUpdateCallback, SingleResult } from "./types.ts";
 
 export async function resumeTeammateSession(args: {
-	runtimeConfig: TeammatesSettingsConfig;
 	job: TeammateJobRecord;
 	signal: AbortSignal | undefined;
 	onUpdate: OnUpdateCallback | undefined;

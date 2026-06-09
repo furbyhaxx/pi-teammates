@@ -5,7 +5,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ejectBuiltinTeammates, type BuiltinEjectScope } from "./builtin-teammates.ts";
-import { loadTeammatesConfig, type TeammatesSettingsConfig } from "./config.ts";
+import { loadTeammatesConfig } from "./config.ts";
 import {
 	buildDelegatedUserTask,
 	generateDelegationContext,
@@ -332,7 +332,6 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 						return;
 					}
 					const result = await resumeTeammateSession({
-						runtimeConfig,
 						job,
 						signal: ctx.signal,
 						onUpdate: undefined,
@@ -484,7 +483,6 @@ export default function teammatesExtension(pi: ExtensionAPI) {
 				}
 
 				const result = await resumeTeammateSession({
-					runtimeConfig,
 					job,
 					signal,
 					onUpdate,

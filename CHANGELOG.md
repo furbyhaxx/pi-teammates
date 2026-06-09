@@ -78,5 +78,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Removed
 
+- Removed unused resume-runner config plumbing left over from the modularization.
 - Removed an unused delegate render constant left over from the rendering extraction.
 - Removed the unused subprocess-based delegation helpers (`buildDelegateProcessPlan`, `copySessionFileToTemp`, `TEAMMATES_CURRENT_ENV`) superseded by the SDK-based `createAgentSession` flow.
