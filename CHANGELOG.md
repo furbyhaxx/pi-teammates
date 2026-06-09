@@ -38,6 +38,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Extracted delegate rendering formatters and render hooks into focused delegate render modules while preserving existing behavior.
 - Extracted shared delegate result types, model resolution, output formatting, and display item helpers into focused delegate modules while preserving existing behavior.
 - Documented the approved domain-first modularization design and implementation plan for a behavior-preserving refactor of the extension internals.
 - Reworked collapsed `delegate` TUI rendering for single, parallel, and chain modes into tree-style teammate rows with persistent goal lines, richer live usage/model metadata, cleaner done/error status rows, and less duplicated task preview noise.
