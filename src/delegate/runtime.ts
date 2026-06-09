@@ -7,7 +7,6 @@ import {
 	type SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type { Model, ThinkingLevel } from "@earendil-works/pi-ai";
-import { updateTeammateJobRecord, type TeammateJobRecord } from "../job-registry.ts";
 import { buildInjectedSkillsPrompt } from "../teammate-skills.ts";
 import type { TeammatePromptMode } from "../teammates.ts";
 import { formatResolvedModelLabel } from "./model.ts";
@@ -20,9 +19,6 @@ export interface ChildRuntimeSetupResult {
 	sessionHandle: ChildSessionHandle;
 	syncSnapshot: () => void;
 	cleanup: () => void;
-	updateEffectiveModel: () => void;
-	getJobRecord: () => TeammateJobRecord | undefined;
-	setJobRecord: (record: TeammateJobRecord | undefined) => void;
 }
 
 export async function createChildRuntime(args: {
@@ -35,9 +31,7 @@ export async function createChildRuntime(args: {
 	promptMode: TeammatePromptMode;
 	systemPrompt: string;
 	result: SingleResult;
-	jobRecord: TeammateJobRecord | undefined;
-	appendJobRecord: (record: TeammateJobRecord) => void;
-	onJobRecordUpdate?: (record: TeammateJobRecord) => void;
+	onEffectiveModelChange?: (model: string) => void;
 	emitUpdate: () => void;
 	signal: AbortSignal | undefined;
 	includeModelOptions?: boolean;
@@ -47,7 +41,6 @@ export async function createChildRuntime(args: {
 	let sessionHandle: ChildSessionHandle | undefined;
 	let unsubscribe: (() => void) | undefined;
 	let abortCleanup: (() => void) | undefined;
-	let currentJobRecord = args.jobRecord;
 
 	const cleanup = () => {
 		abortCleanup?.();
@@ -101,11 +94,7 @@ export async function createChildRuntime(args: {
 			const resolvedModel = formatResolvedModelLabel(childSession.model, childSession.thinkingLevel);
 			if (!resolvedModel) return;
 			args.result.model = resolvedModel;
-			if (currentJobRecord && currentJobRecord.model !== resolvedModel) {
-				currentJobRecord = updateTeammateJobRecord(currentJobRecord, currentJobRecord.status, { model: resolvedModel });
-				args.onJobRecordUpdate?.(currentJobRecord);
-				args.appendJobRecord(currentJobRecord);
-			}
+			args.onEffectiveModelChange?.(resolvedModel);
 		};
 		updateEffectiveModel();
 		await childSession.bindExtensions({
@@ -154,11 +143,6 @@ export async function createChildRuntime(args: {
 			sessionHandle,
 			syncSnapshot,
 			cleanup,
-			updateEffectiveModel,
-			getJobRecord: () => currentJobRecord,
-			setJobRecord: (record) => {
-				currentJobRecord = record;
-			},
 		};
 	} catch (error) {
 		cleanup();

@@ -100,6 +100,11 @@ export async function runSingleTeammate(args: {
 
 	let runtime: ChildRuntimeSetupResult | undefined;
 	let jobRecord: TeammateJobRecord | undefined;
+	const persistEffectiveModel = (model: string) => {
+		if (!jobRecord || jobRecord.model === model) return;
+		jobRecord = updateTeammateJobRecord(jobRecord, jobRecord.status, { model });
+		args.appendJobRecord(jobRecord);
+	};
 
 	try {
 		const childSessionDir = buildChildSessionDir(args.parentSessionDir, args.parentSessionId);
@@ -205,11 +210,7 @@ export async function runSingleTeammate(args: {
 			promptMode: teammate.promptMode,
 			systemPrompt: teammate.systemPrompt,
 			result: currentResult,
-			jobRecord,
-			appendJobRecord: args.appendJobRecord,
-			onJobRecordUpdate: (record) => {
-				jobRecord = record;
-			},
+			onEffectiveModelChange: persistEffectiveModel,
 			emitUpdate,
 			signal: args.signal,
 		});
@@ -232,7 +233,7 @@ export async function runSingleTeammate(args: {
 					: "failed";
 
 		if (jobRecord) {
-			jobRecord = updateTeammateJobRecord(runtime.getJobRecord() ?? jobRecord, currentResult.status as any);
+			jobRecord = updateTeammateJobRecord(jobRecord, currentResult.status as any);
 			args.appendJobRecord(jobRecord);
 		}
 
@@ -242,7 +243,7 @@ export async function runSingleTeammate(args: {
 		currentResult.status = currentResult.status === "running" ? "failed" : currentResult.status;
 		currentResult.stderr += `${error instanceof Error ? error.message : String(error)}`;
 		if (jobRecord) {
-			args.appendJobRecord(updateTeammateJobRecord(runtime?.getJobRecord() ?? jobRecord, "failed"));
+			args.appendJobRecord(updateTeammateJobRecord(jobRecord, "failed"));
 		}
 		return currentResult;
 	} finally {

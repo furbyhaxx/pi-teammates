@@ -40,6 +40,11 @@ export async function resumeTeammateSession(args: {
 
 	let runtime: ChildRuntimeSetupResult | undefined;
 	let currentJobRecord = args.job;
+	const persistEffectiveModel = (model: string) => {
+		if (currentJobRecord.model === model) return;
+		currentJobRecord = updateTeammateJobRecord(currentJobRecord, currentJobRecord.status, { model });
+		args.appendJobRecord(currentJobRecord);
+	};
 
 	try {
 		const sessionDir = path.dirname(args.job.childSessionPath);
@@ -55,17 +60,12 @@ export async function resumeTeammateSession(args: {
 			promptMode: args.job.promptMode,
 			systemPrompt: args.job.systemPrompt,
 			result,
-			jobRecord: currentJobRecord,
-			appendJobRecord: args.appendJobRecord,
-			onJobRecordUpdate: (record) => {
-				currentJobRecord = record;
-			},
+			onEffectiveModelChange: persistEffectiveModel,
 			emitUpdate,
 			signal: args.signal,
 		});
 
-		currentJobRecord = updateTeammateJobRecord(runtime.getJobRecord() ?? currentJobRecord, "running");
-		runtime.setJobRecord(currentJobRecord);
+		currentJobRecord = updateTeammateJobRecord(currentJobRecord, "running");
 		args.appendJobRecord(currentJobRecord);
 		const childSession = runtime.sessionHandle.session;
 		await childSession.agent.continue();
@@ -78,15 +78,14 @@ export async function resumeTeammateSession(args: {
 		result.stopReason = outcome.stopReason;
 		result.errorMessage = outcome.errorMessage;
 		result.status = result.exitCode === 0 ? "completed" : result.stopReason === "aborted" ? "aborted" : "failed";
-		currentJobRecord = updateTeammateJobRecord(runtime.getJobRecord() ?? currentJobRecord, result.status as any);
-		runtime.setJobRecord(currentJobRecord);
+		currentJobRecord = updateTeammateJobRecord(currentJobRecord, result.status as any);
 		args.appendJobRecord(currentJobRecord);
 		return result;
 	} catch (error) {
 		result.exitCode = 1;
 		result.status = "failed";
 		result.stderr += `${error instanceof Error ? error.message : String(error)}`;
-		args.appendJobRecord(updateTeammateJobRecord(runtime?.getJobRecord() ?? currentJobRecord, "failed"));
+		args.appendJobRecord(updateTeammateJobRecord(currentJobRecord, "failed"));
 		return result;
 	} finally {
 		runtime?.cleanup();
