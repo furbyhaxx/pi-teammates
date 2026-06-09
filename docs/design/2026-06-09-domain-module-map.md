@@ -4,7 +4,7 @@ This document records the production module layout after the behavior-preserving
 
 ## Entry Point
 
-- `src/index.ts` wires Pi extension registration only.
+- `src/index.ts` stays thin by wiring Pi extension registration and preserving the `formatResolvedModelLabel` compatibility re-export.
 - `src/extension/register-events.ts` registers lifecycle/system-prompt events.
 - `src/extension/register-commands.ts` registers slash commands.
 - `src/extension/register-tools.ts` registers the `delegate` tool.
@@ -23,11 +23,13 @@ This document records the production module layout after the behavior-preserving
 
 ## Context, Config, Teammates, Jobs, UI
 
+- `src/commands/` handles slash command completions and command implementations for builtin ejection, manual teammate delegation/handoff, and new-session summary/handoff transfers.
 - `src/context/` handles context modes, context model refs, context prompts, message extraction, and context packet generation.
 - `src/config/` handles default settings, scoped loading, sanitization, merging, and cache invalidation.
 - `src/teammates/` handles teammate discovery, parsing, builtins, skills, state, recursion policy, and lineage.
 - `src/jobs/` handles teammate job record persistence and queries.
 - `src/ui/` handles teammate management/status overlays and shared overlay layout helpers.
+- `src/shared/` handles small cross-domain helpers for deduplication and concurrency-limited mapping.
 
 ## Compatibility Barrels
 
