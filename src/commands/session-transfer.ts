@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { CommandContext } from "./types.ts";
 import { defaultNewSessionTask } from "../command-helpers.ts";
 import { loadTeammatesConfig } from "../config.ts";
 import {
@@ -7,7 +7,7 @@ import {
 } from "../context-transfer.ts";
 
 export async function runNewSessionTransfer(args: {
-	ctx: Parameters<NonNullable<Parameters<ExtensionAPI["registerCommand"]>[1]["handler"]>>[1];
+	ctx: CommandContext;
 	mode: "summary" | "handoff";
 	rawArgs: string;
 }): Promise<void> {

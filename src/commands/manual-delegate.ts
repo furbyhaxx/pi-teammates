@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { CommandContext } from "./types.ts";
 import { loadTeammatesConfig } from "../config.ts";
 import { selectContextMode, type TeammateContextMode } from "../context-transfer.ts";
 import {
@@ -18,7 +19,7 @@ import { discoverTeammates } from "../teammates.ts";
 
 export async function runManualTeammateDelegation(args: {
 	pi: ExtensionAPI;
-	ctx: Parameters<NonNullable<Parameters<ExtensionAPI["registerCommand"]>[1]["handler"]>>[1];
+	ctx: CommandContext;
 	commandName: "team:delegate" | "team:handoff";
 	forcedContext?: TeammateContextMode;
 	rawArgs: string;
