@@ -38,6 +38,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Split teammate overlay layout, manager, and status UI internals into focused UI modules while preserving behavior.
 - Split teammate discovery, builtin teammate helpers, teammate state/policy/process helpers, and job registry internals into focused domain modules while preserving behavior.
 - Split config loading, defaults, sanitization, merge helpers, and cache internals into focused config modules while preserving behavior.
 - Dropped out-of-scope context index assertions from the context-transfer test while keeping the context-module split intact.
