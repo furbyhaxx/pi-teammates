@@ -1,6 +1,7 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth, type Focusable } from "@earendil-works/pi-tui";
-import type { discoverTeammates, TeammateConfig } from "../../teammates.ts";
+import type { discoverTeammates } from "../../teammates/discover.ts";
+import type { TeammateConfig } from "../../teammates/types.ts";
 import {
 	getLargeModalLayout,
 	getManageColumnWidths,

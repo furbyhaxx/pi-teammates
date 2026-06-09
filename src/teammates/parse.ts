@@ -1,5 +1,5 @@
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { parseTeammateContextMode } from "../context-transfer.ts";
+import { parseTeammateContextMode } from "../context/modes.ts";
 import type { TeammateConfig, TeammateSource } from "./types.ts";
 
 export function parseTeammateMarkdown(

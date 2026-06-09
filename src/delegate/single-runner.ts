@@ -3,14 +3,14 @@ import type { Model } from "@earendil-works/pi-ai";
 import {
 	buildDelegatedUserTask,
 	generateDelegationContext,
-	selectContextMode,
-	type TeammateContextMode,
-} from "../context-transfer.ts";
-import type { TeammatesSettingsConfig } from "../config.ts";
-import { canDelegateToTeammate, resolveTeammateToolNames } from "../delegation-policy.ts";
-import { createTeammateJobRecord, updateTeammateJobRecord, type TeammateJobRecord } from "../job-registry.ts";
-import { createTeammateSessionState, TEAMMATE_STATE_CUSTOM_TYPE } from "../teammate-state.ts";
-import type { TeammateConfig } from "../teammates.ts";
+} from "../context/generate.ts";
+import { selectContextMode, type TeammateContextMode } from "../context/modes.ts";
+import type { TeammatesSettingsConfig } from "../config/types.ts";
+import { canDelegateToTeammate, resolveTeammateToolNames } from "../teammates/policy.ts";
+import { createTeammateJobRecord, updateTeammateJobRecord } from "../jobs/records.ts";
+import type { TeammateJobRecord } from "../jobs/types.ts";
+import { createTeammateSessionState, TEAMMATE_STATE_CUSTOM_TYPE } from "../teammates/state.ts";
+import type { TeammateConfig } from "../teammates/types.ts";
 import { resolveTeammateModel } from "./model.ts";
 import { getFinalOutput } from "./output.ts";
 import { extractRunOutcome } from "./run-outcome.ts";

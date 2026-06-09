@@ -1,4 +1,4 @@
-import type { TeammatesContextConfig } from "../context-transfer.ts";
+import type { TeammatesContextConfig } from "../context/prompts.ts";
 
 export interface TeammatesSettingsConfig {
 	loadProjectTeammates: boolean;

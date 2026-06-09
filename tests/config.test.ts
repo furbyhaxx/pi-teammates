@@ -2,10 +2,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	DEFAULT_TEAMMATES_CONFIG,
-	loadTeammatesConfig,
-} from "../src/config.ts";
+import { DEFAULT_TEAMMATES_CONFIG } from "../src/config/defaults.ts";
+import { loadTeammatesConfig } from "../src/config/load.ts";
 
 assert.deepEqual(DEFAULT_TEAMMATES_CONFIG, {
 	teammates: {

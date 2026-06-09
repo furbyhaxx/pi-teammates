@@ -1,6 +1,6 @@
 import type { Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
-import { parseContextModelRef } from "../context-transfer.ts";
+import { parseContextModelRef } from "../context/model-refs.ts";
 
 export function formatResolvedModelLabel(
 	model: { provider: string; id: string } | undefined,

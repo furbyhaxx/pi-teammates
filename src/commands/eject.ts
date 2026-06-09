@@ -1,5 +1,5 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { ejectBuiltinTeammates, type BuiltinEjectScope } from "../builtin-teammates.ts";
+import { ejectBuiltinTeammates, type BuiltinEjectScope } from "../teammates/builtins.ts";
 
 export async function runEjectBuiltinCommand(commandArgs: string, ctx: ExtensionCommandContext): Promise<void> {
 	const tokens = commandArgs.split(/\s+/).map((token) => token.trim()).filter(Boolean);

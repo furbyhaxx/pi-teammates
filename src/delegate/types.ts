@@ -1,6 +1,6 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
-import type { TeammateContextMode } from "../context-transfer.ts";
+import type { TeammateContextMode } from "../context/modes.ts";
 
 export interface UsageStats {
 	input: number;

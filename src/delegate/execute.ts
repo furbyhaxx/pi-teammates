@@ -1,15 +1,13 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { loadTeammatesConfig } from "../config.ts";
-import { canDelegateToTeammate } from "../delegation-policy.ts";
-import { parseTeammatesLineage, TEAMMATES_LINEAGE_ENV } from "../delegate-process.ts";
-import {
-	findTeammateJob,
-	TEAMMATE_JOB_CUSTOM_TYPE,
-	type TeammateJobRecord,
-} from "../job-registry.ts";
-import { getLatestTeammateSessionState } from "../teammate-state.ts";
-import { discoverTeammates, type TeammateConfig } from "../teammates.ts";
+import { loadTeammatesConfig } from "../config/load.ts";
+import { canDelegateToTeammate } from "../teammates/policy.ts";
+import { parseTeammatesLineage, TEAMMATES_LINEAGE_ENV } from "../teammates/process.ts";
+import { findTeammateJob } from "../jobs/queries.ts";
+import { TEAMMATE_JOB_CUSTOM_TYPE, type TeammateJobRecord } from "../jobs/types.ts";
+import { getLatestTeammateSessionState } from "../teammates/state.ts";
+import { discoverTeammates } from "../teammates/discover.ts";
+import type { TeammateConfig } from "../teammates/types.ts";
 import { executeDelegateChain } from "./chain.ts";
 import {
 	getFinalOutput,

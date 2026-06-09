@@ -1,5 +1,5 @@
-import { loadTeammatesConfig } from "../config.ts";
-import { discoverTeammates } from "../teammates.ts";
+import { loadTeammatesConfig } from "../config/load.ts";
+import { discoverTeammates } from "../teammates/discover.ts";
 
 export async function completeTeamDelegateArguments(prefix: string) {
 	const match = prefix.match(/(?:^|\s)--agent\s+(\S*)$/);

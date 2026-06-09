@@ -1,10 +1,10 @@
 import type { CommandContext } from "./types.ts";
 import { defaultNewSessionTask } from "../command-helpers.ts";
-import { loadTeammatesConfig } from "../config.ts";
+import { loadTeammatesConfig } from "../config/load.ts";
 import {
 	buildDelegatedUserTask,
 	generateDelegationContext,
-} from "../context-transfer.ts";
+} from "../context/generate.ts";
 
 export async function runNewSessionTransfer(args: {
 	ctx: CommandContext;

@@ -2,8 +2,10 @@ import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getAgentDir, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { buildTeammateTemplate } from "../../command-helpers.ts";
-import { loadTeammatesConfig } from "../../config.ts";
-import { discoverTeammates, findNearestProjectTeammatesDir, parseTeammateMarkdown, type TeammateConfig } from "../../teammates.ts";
+import { loadTeammatesConfig } from "../../config/load.ts";
+import { discoverTeammates, findNearestProjectTeammatesDir } from "../../teammates/discover.ts";
+import { parseTeammateMarkdown } from "../../teammates/parse.ts";
+import type { TeammateConfig } from "../../teammates/types.ts";
 import { buildResponsiveOverlayOptions } from "../overlay-layout.ts";
 import { ManageOverlayComponent } from "./component.ts";
 

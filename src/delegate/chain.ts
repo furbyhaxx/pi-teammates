@@ -1,7 +1,7 @@
 import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { TeammatesSettingsConfig } from "../config.ts";
-import type { TeammateJobRecord } from "../job-registry.ts";
-import type { TeammateConfig } from "../teammates.ts";
+import type { TeammatesSettingsConfig } from "../config/types.ts";
+import type { TeammateJobRecord } from "../jobs/types.ts";
+import type { TeammateConfig } from "../teammates/types.ts";
 import { runSingleTeammate } from "./single-runner.ts";
 import {
 	formatChainResultLabel,

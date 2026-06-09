@@ -1,13 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildManualDelegationTranscript } from "../command-helpers.ts";
-import { loadTeammatesConfig } from "../config.ts";
+import { loadTeammatesConfig } from "../config/load.ts";
 import { getResultOutput, isFailedResult } from "../delegate/output.ts";
 import { resumeTeammateSession } from "../delegate/resume-runner.ts";
-import {
-	findTeammateJob,
-	TEAMMATE_JOB_CUSTOM_TYPE,
-} from "../job-registry.ts";
-import { showTeammateStatusOverlay } from "../status-widget.ts";
+import { findTeammateJob } from "../jobs/queries.ts";
+import { TEAMMATE_JOB_CUSTOM_TYPE } from "../jobs/types.ts";
+import { showTeammateStatusOverlay } from "../ui/status/index.ts";
 import type { CommandContext } from "./types.ts";
 
 export async function runStatusCommand(args: {

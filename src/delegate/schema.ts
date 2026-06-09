@@ -1,6 +1,6 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import { type Static, Type } from "typebox";
-import { TEAMMATE_CONTEXT_MODES } from "../context-transfer.ts";
+import { TEAMMATE_CONTEXT_MODES } from "../context/modes.ts";
 
 export const TaskItem = Type.Object({
 	teammate: Type.String({ description: "Name of the teammate to invoke" }),

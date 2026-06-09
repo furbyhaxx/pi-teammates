@@ -1,8 +1,8 @@
 import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { TeammatesSettingsConfig } from "../config.ts";
-import type { TeammateJobRecord } from "../job-registry.ts";
+import type { TeammatesSettingsConfig } from "../config/types.ts";
+import type { TeammateJobRecord } from "../jobs/types.ts";
 import { mapWithConcurrencyLimit } from "../shared/concurrency.ts";
-import type { TeammateConfig } from "../teammates.ts";
+import type { TeammateConfig } from "../teammates/types.ts";
 import {
 	getResultOutput,
 	isFailedResult,

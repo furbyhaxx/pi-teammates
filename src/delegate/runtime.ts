@@ -7,8 +7,8 @@ import {
 	type SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type { Model, ThinkingLevel } from "@earendil-works/pi-ai";
-import { buildInjectedSkillsPrompt } from "../teammate-skills.ts";
-import type { TeammatePromptMode } from "../teammates.ts";
+import { buildInjectedSkillsPrompt } from "../teammates/skills.ts";
+import type { TeammatePromptMode } from "../teammates/types.ts";
 import { formatResolvedModelLabel } from "./model.ts";
 import { extractRunOutcome, getTrackableMessages } from "./run-outcome.ts";
 import type { SingleResult } from "./types.ts";

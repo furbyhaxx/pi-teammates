@@ -1,4 +1,4 @@
-import type { TeammateContextMode } from "../context-transfer.ts";
+import type { TeammateContextMode } from "../context/modes.ts";
 
 export type TeammateSource = "user" | "project" | "builtin";
 export type TeammatePromptMode = "append" | "replace";

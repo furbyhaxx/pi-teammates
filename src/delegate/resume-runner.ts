@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { SessionManager, type ModelRegistry } from "@earendil-works/pi-coding-agent";
-import { updateTeammateJobRecord, type TeammateJobRecord } from "../job-registry.ts";
+import { updateTeammateJobRecord } from "../jobs/records.ts";
+import type { TeammateJobRecord } from "../jobs/types.ts";
 import { getFinalOutput } from "./output.ts";
 import { extractRunOutcome } from "./run-outcome.ts";
 import { createChildRuntime, type ChildRuntimeSetupResult } from "./runtime.ts";

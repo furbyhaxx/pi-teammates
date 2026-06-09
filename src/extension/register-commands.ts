@@ -4,7 +4,7 @@ import { runEjectBuiltinCommand } from "../commands/eject.ts";
 import { runManualTeammateDelegation } from "../commands/manual-delegate.ts";
 import { runNewSessionTransfer } from "../commands/session-transfer.ts";
 import { runStatusCommand } from "../commands/status.ts";
-import { runTeammateManager } from "../manage-widget.ts";
+import { runTeammateManager } from "../ui/manage/index.ts";
 
 export function registerCommands(pi: ExtensionAPI): void {
 	pi.registerCommand("team:delegate", {

@@ -1,5 +1,5 @@
-import type { TeammateContextMode } from "../context-transfer.ts";
-import type { TeammatePromptMode } from "../teammates.ts";
+import type { TeammateContextMode } from "../context/modes.ts";
+import type { TeammatePromptMode } from "../teammates/types.ts";
 
 export const TEAMMATE_JOB_CUSTOM_TYPE = "pi-teammates/job";
 

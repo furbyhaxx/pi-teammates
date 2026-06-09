@@ -1,6 +1,7 @@
 import { copyToClipboard, type ExtensionCommandContext, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import { collectLatestTeammateJobs, type TeammateJobRecord } from "../../job-registry.ts";
+import { collectLatestTeammateJobs } from "../../jobs/queries.ts";
+import type { TeammateJobRecord } from "../../jobs/types.ts";
 import { buildResponsiveOverlayOptions, getLargeModalLayout, padRowsToCount, padToVisibleWidth } from "../overlay-layout.ts";
 import { StatusOverlayComponent, type StatusAction } from "./component.ts";
 

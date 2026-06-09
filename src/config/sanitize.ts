@@ -1,4 +1,4 @@
-import type { TeammatesContextConfig } from "../context-transfer.ts";
+import type { TeammatesContextConfig } from "../context/prompts.ts";
 import { DEFAULT_TEAMMATES_CONFIG, TEAMMATES_CONTEXT_KEYS } from "./defaults.ts";
 import { pickKnown } from "./merge.ts";
 import type { TeammatesSettingsConfig } from "./types.ts";

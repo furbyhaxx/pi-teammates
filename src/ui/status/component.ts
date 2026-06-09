@@ -1,6 +1,6 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth, type Focusable } from "@earendil-works/pi-tui";
-import type { TeammateJobRecord } from "../../job-registry.ts";
+import type { TeammateJobRecord } from "../../jobs/types.ts";
 import {
 	getLargeModalLayout,
 	getStatusColumnWidths,

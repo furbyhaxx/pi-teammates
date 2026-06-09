@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { CommandContext } from "./types.ts";
-import { loadTeammatesConfig } from "../config.ts";
-import { selectContextMode, type TeammateContextMode } from "../context-transfer.ts";
+import { loadTeammatesConfig } from "../config/load.ts";
+import { selectContextMode, type TeammateContextMode } from "../context/modes.ts";
 import {
 	buildManualDelegationTranscript,
 	improveDelegationTask,
@@ -9,13 +9,10 @@ import {
 } from "../command-helpers.ts";
 import { getResultOutput, isFailedResult } from "../delegate/output.ts";
 import { runSingleTeammate } from "../delegate/single-runner.ts";
-import { parseTeammatesLineage, TEAMMATES_LINEAGE_ENV } from "../delegate-process.ts";
-import {
-	TEAMMATE_JOB_CUSTOM_TYPE,
-	type TeammateJobRecord,
-} from "../job-registry.ts";
-import { getLatestTeammateSessionState } from "../teammate-state.ts";
-import { discoverTeammates } from "../teammates.ts";
+import { parseTeammatesLineage, TEAMMATES_LINEAGE_ENV } from "../teammates/process.ts";
+import { TEAMMATE_JOB_CUSTOM_TYPE, type TeammateJobRecord } from "../jobs/types.ts";
+import { getLatestTeammateSessionState } from "../teammates/state.ts";
+import { discoverTeammates } from "../teammates/discover.ts";
 
 export async function runManualTeammateDelegation(args: {
 	pi: ExtensionAPI;

@@ -1,17 +1,15 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { loadTeammatesConfig } from "../config.ts";
+import { loadTeammatesConfig } from "../config/load.ts";
 import {
 	buildTeamPromptBlock,
 	canDelegateToTeammate,
-} from "../delegation-policy.ts";
-import { parseTeammatesLineage, TEAMMATES_LINEAGE_ENV } from "../delegate-process.ts";
-import {
-	collectInterruptedTeammateJobs,
-	TEAMMATE_JOB_CUSTOM_TYPE,
-	updateTeammateJobRecord,
-} from "../job-registry.ts";
-import { getLatestTeammateSessionState } from "../teammate-state.ts";
-import { discoverTeammates } from "../teammates.ts";
+} from "../teammates/policy.ts";
+import { parseTeammatesLineage, TEAMMATES_LINEAGE_ENV } from "../teammates/process.ts";
+import { collectInterruptedTeammateJobs } from "../jobs/queries.ts";
+import { updateTeammateJobRecord } from "../jobs/records.ts";
+import { TEAMMATE_JOB_CUSTOM_TYPE } from "../jobs/types.ts";
+import { getLatestTeammateSessionState } from "../teammates/state.ts";
+import { discoverTeammates } from "../teammates/discover.ts";
 
 export function registerEvents(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {

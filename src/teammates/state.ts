@@ -1,5 +1,5 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { TeammateContextMode } from "../context-transfer.ts";
+import type { TeammateContextMode } from "../context/modes.ts";
 
 export const TEAMMATE_STATE_CUSTOM_TYPE = "pi-teammates/state";
 

@@ -1,7 +1,7 @@
 import { complete, type Model } from "@earendil-works/pi-ai";
 import type { ModelRegistry, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { convertToLlm, serializeConversation } from "@earendil-works/pi-coding-agent";
-import { getContextTransferMessages } from "./context-transfer.ts";
+import { getContextTransferMessages } from "./context/messages.ts";
 
 export interface ParsedTeamCommandArgs {
 	agent?: string;
