@@ -38,6 +38,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Updated the delegate test model-label helper import to use the direct delegate domain module.
 - Removed legacy root compatibility barrels in favor of direct domain imports across internal modules and tests.
 - Narrowed the shared delegate child-session runtime API so fresh and resumed runners own teammate job persistence directly.
 - Shared delegate child-session runtime setup between fresh and resumed teammate sessions while preserving runner behavior.

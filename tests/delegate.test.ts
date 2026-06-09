@@ -4,7 +4,7 @@ import {
 	canDelegateToTeammate,
 	resolveTeammateToolNames,
 } from "../src/teammates/policy.ts";
-import { formatResolvedModelLabel } from "../src/index.ts";
+import { formatResolvedModelLabel } from "../src/delegate/model.ts";
 
 assert.deepEqual(
 	resolveTeammateToolNames({
