@@ -1,6 +1,6 @@
 # pi-teammates Domain Module Map
 
-This document records the production module layout after the behavior-preserving domain-first modularization.
+This document records the production module layout after the behavior-preserving domain-first modularization and the post-refactor cleanup pass.
 
 ## Entry Point
 
@@ -16,6 +16,7 @@ This document records the production module layout after the behavior-preserving
 - `src/delegate/execute.ts` validates mode selection and routes single, parallel, chain, and resume calls.
 - `src/delegate/single-runner.ts` creates and runs new internal teammate sessions.
 - `src/delegate/resume-runner.ts` resumes persisted teammate sessions.
+- `src/delegate/runtime.ts` shares child-session runtime setup for fresh and resumed teammate sessions.
 - `src/delegate/chain.ts` handles sequential chain execution.
 - `src/delegate/parallel.ts` handles parallel task execution.
 - `src/delegate/output.ts` formats model-visible result text.
@@ -23,7 +24,7 @@ This document records the production module layout after the behavior-preserving
 
 ## Context, Config, Teammates, Jobs, UI
 
-- `src/commands/` handles slash command completions and command implementations for builtin ejection, manual teammate delegation/handoff, and new-session summary/handoff transfers.
+- `src/commands/` handles slash command completions and command implementations for builtin ejection, manual teammate delegation/handoff, new-session summary/handoff transfers, `/team:status`, and shared command-context typing.
 - `src/context/` handles context modes, context model refs, context prompts, message extraction, and context packet generation.
 - `src/config/` handles default settings, scoped loading, sanitization, merging, and cache invalidation.
 - `src/teammates/` handles teammate discovery, parsing, builtins, skills, state, recursion policy, and lineage.
@@ -31,6 +32,8 @@ This document records the production module layout after the behavior-preserving
 - `src/ui/` handles teammate management/status overlays and shared overlay layout helpers.
 - `src/shared/` handles small cross-domain helpers for deduplication and concurrency-limited mapping.
 
-## Compatibility Barrels
+## Internal Import Surface
 
-The root files `src/config.ts`, `src/context-transfer.ts`, `src/teammates.ts`, `src/job-registry.ts`, and related historical root files re-export from the new domain folders to preserve existing internal import paths and tests.
+Internal code and tests import direct domain modules from `src/commands/`, `src/context/`, `src/config/`, `src/delegate/`, `src/jobs/`, `src/teammates/`, `src/ui/`, and `src/shared/` rather than root-level compatibility barrels.
+
+Historical root shims such as `src/config.ts`, `src/context-transfer.ts`, `src/teammates.ts`, `src/job-registry.ts`, `src/manage-widget.ts`, `src/status-widget.ts`, `src/overlay-layout.ts`, `src/delegate-process.ts`, `src/delegation-policy.ts`, `src/teammate-skills.ts`, `src/teammate-state.ts`, and `src/builtin-teammates.ts` were removed during the cleanup pass. The package entrypoint remains `src/index.ts`; its intentional public export surface is separate from internal domain imports.

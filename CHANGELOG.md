@@ -38,6 +38,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Resolved the post-refactor cleanup pass by sharing delegate child-session runtime setup, extracting the remaining `team:status` workflow, introducing shared command-context typing, and removing legacy compatibility barrels in favor of direct domain imports.
 - Updated the delegate test model-label helper import to use the direct delegate domain module.
 - Removed legacy root compatibility barrels in favor of direct domain imports across internal modules and tests.
 - Narrowed the shared delegate child-session runtime API so fresh and resumed runners own teammate job persistence directly.
