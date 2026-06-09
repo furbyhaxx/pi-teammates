@@ -25,6 +25,7 @@ This document records the production module layout after the behavior-preserving
 ## Context, Config, Teammates, Jobs, UI
 
 - `src/commands/` handles slash command completions and command implementations for builtin ejection, manual teammate delegation/handoff, new-session summary/handoff transfers, `/team:status`, and shared command-context typing.
+- `src/command-helpers.ts` remains as a root-level internal helper for shared slash-command parsing, transcript summaries, teammate template generation, and task-improvement prompts; it is not a compatibility barrel.
 - `src/context/` handles context modes, context model refs, context prompts, message extraction, and context packet generation.
 - `src/config/` handles default settings, scoped loading, sanitization, merging, and cache invalidation.
 - `src/teammates/` handles teammate discovery, parsing, builtins, skills, state, recursion policy, and lineage.
@@ -34,6 +35,6 @@ This document records the production module layout after the behavior-preserving
 
 ## Internal Import Surface
 
-Internal code and tests import direct domain modules from `src/commands/`, `src/context/`, `src/config/`, `src/delegate/`, `src/jobs/`, `src/teammates/`, `src/ui/`, and `src/shared/` rather than root-level compatibility barrels.
+Internal code and tests import direct domain modules from `src/commands/`, `src/context/`, `src/config/`, `src/delegate/`, `src/jobs/`, `src/teammates/`, `src/ui/`, and `src/shared/` rather than root-level compatibility barrels, with `src/command-helpers.ts` retained as the remaining root-level internal helper.
 
 Historical root shims such as `src/config.ts`, `src/context-transfer.ts`, `src/teammates.ts`, `src/job-registry.ts`, `src/manage-widget.ts`, `src/status-widget.ts`, `src/overlay-layout.ts`, `src/delegate-process.ts`, `src/delegation-policy.ts`, `src/teammate-skills.ts`, `src/teammate-state.ts`, and `src/builtin-teammates.ts` were removed during the cleanup pass. The package entrypoint remains `src/index.ts`; its intentional public export surface is separate from internal domain imports.

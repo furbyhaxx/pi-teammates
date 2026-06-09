@@ -50,7 +50,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Split teammate discovery, builtin teammate helpers, teammate state/policy/process helpers, and job registry internals into focused domain modules while preserving behavior.
 - Split config loading, defaults, sanitization, merge helpers, and cache internals into focused config modules while preserving behavior.
 - Dropped out-of-scope context index assertions from the context-transfer test while keeping the context-module split intact.
-- Split context-transfer internals into focused context modules with the original root import path kept as a compatibility barrel.
+- Split context-transfer internals into focused context modules; the temporary root compatibility barrel was removed in the later cleanup pass.
 - Extracted slash command handlers and extension event registration into focused command/extension modules while preserving behavior.
 - Tightened extracted delegate execution typing, made delegate parameters derive from the TypeBox schema, and moved teammate job lookup into the job registry while preserving behavior.
 - Extracted delegate schema, execution routing, and tool registration into focused delegate/extension modules while preserving existing behavior.
@@ -83,6 +83,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- Reconciled the domain cleanup documentation with the remaining root-level command helper and removed context-transfer barrel.
 - Fixed teammate discovery rejecting PascalCase names; teammate names may now use uppercase and lowercase letters, numbers, and hyphens.
 - Fixed npm package contents omitting `skills/`, which prevented the packaged `recruiting-teammates` skill from being exposed on npm installs.
 - Fixed `/team:manage` warning UX to show skipped-file reasons instead of only a count.
